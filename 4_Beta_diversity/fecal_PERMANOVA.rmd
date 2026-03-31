@@ -1,0 +1,434 @@
+library(MetBrewer) 
+library(vegan)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(doSNOW)
+library(dplyr)
+library(cowplot)
+library(e1071)
+library(purrr)
+     
+
+# Read meta file
+meta_f_SD <- read.csv("../1_Decontamination/full_data.csv", row.names = 1)
+
+# Read fecal metafhlan file (taxa), CLR transformed, - decontam taxa
+taxa_f_clr <- read.csv(file="../3_CLR_transformation/20250523_fecal_CLR.csv", row.names = 1)
+
+meta_f_SD <- filter(meta_f_SD, rownames(meta_f_SD) %in% rownames(taxa_f_clr))
+
+#Make sure the rows match
+taxa_f_clr <- taxa_f_clr[match(rownames(meta_f_SD), rownames(taxa_f_clr)), ]
+all.equal(rownames(meta_f_SD), rownames(taxa_f_clr))  # This should return TRUE
+
+# Remove rectal swabs
+meta_f_SD <- filter(meta_f_SD, !grepl("rect", meta_f_SD$group_sample_type))
+taxa_f_clr <- filter(taxa_f_clr, rownames(taxa_f_clr) %in% rownames(meta_f_SD))
+
+# Create host and timepoint columns in meta_f_SD
+
+# Extract timepoint (either 'month_X' or 'newborn')
+# Extract month number
+meta_f_SD$timepoint <- sub("^month_(\d+).*", "\1", meta_f_SD$group_sample_type) 
+# Set "newborn" as 0
+meta_f_SD$timepoint[grepl("^newborn", meta_f_SD$group_sample_type)] <- "0" 
+
+# Convert timepoint to numeric
+meta_f_SD$timepoint <- as.numeric(meta_f_SD$timepoint)
+
+# Extract host (1 = mother or 0 = child based on presence of "mother" or "child")
+meta_f_SD$host <- ifelse(grepl("mother", meta_f_SD$group_sample_type), "1", "0")
+meta_f_SD$host <- as.numeric(meta_f_SDhost) 
+meta_f_SD$is_control <- NULL
+
+write.csv(meta_f_SD, "meta_f_SD.csv")    
+check <- unique(select(meta_f_SD, snr, group))
+
+# Compare all subgroups (three-way comparison) for each month
+
+# With R2 and p-values
+# Define colors and shapes for subgroups
+subgroup_colors <- c("C-Section Intervention" = "#0072B2", 
+                     "C-Section Placebo" = "#56B4E9", 
+                     "Vaginal Birth" = "#E69F00")
+subgroup_shapes <- c("C-Section Intervention" = 22,  
+                     "C-Section Placebo" = 21, 
+                     "Vaginal Birth" = 24)
+
+# Define months for analysis
+months <- c("0", "1", "6", "12")
+
+# Filter metadata and taxa data to only include children (host = 0)
+meta_f_SD_h0 <- meta_f_SD[meta_f_SD$host == 0, ]
+taxa_f_clr_h0 <- taxa_f_clr[rownames(taxa_f_clr) %in% rownames(meta_f_SD_h0), ]
+
+# Create subsets of metadata and taxa data for each month for children (host = 0)
+meta_0 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 0, ]
+taxa_0 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_0), ]
+
+meta_1 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 1, ]
+taxa_1 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_1), ]
+
+meta_6 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 6, ]
+taxa_6 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_6), ]
+
+meta_12 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 12, ]
+taxa_12 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_12), ]
+     
+
+# Perform PERMANOVA for each month 
+adonis_results_0 <- adonis2(taxa_0 ~ meta_0$group, method = "euclidean", permutations = 99999)
+adonis_results_1 <- adonis2(taxa_1 ~ meta_1$group, method = "euclidean", permutations = 99999)
+adonis_results_6 <- adonis2(taxa_6 ~ meta_6$group, method = "euclidean", permutations = 99999)
+adonis_results_12 <- adonis2(taxa_12 ~ meta_12$group, method = "euclidean", permutations = 99999)
+
+# Store results
+# Extract p-value and R²
+p_value_0 <- format(adonis_results_0$`Pr(>F)`[1], digits = 4, scientific = FALSE)
+r_squared_0 <- format(adonis_results_0$R2[1], digits = 4, scientific = FALSE)
+    
+p_value_1 <- format(adonis_results_1$`Pr(>F)`[1], digits = 4, scientific = FALSE)
+r_squared_1 <- format(adonis_results_1$R2[1], digits = 4, scientific = FALSE)
+    
+p_value_6 <- format(adonis_results_6$`Pr(>F)`[1], digits = 4, scientific = FALSE)
+r_squared_6 <- format(adonis_results_6$R2[1], digits = 4, scientific = FALSE)
+    
+p_value_12 <- format(adonis_results_12$`Pr(>F)`[1], digits = 4, scientific = FALSE)
+r_squared_12 <- format(adonis_results_12$R2[1], digits = 4, scientific = FALSE)
+    
+# Create a data frame with months as row names and columns for P-values and R² values
+permanova_results <- data.frame(
+  Month = c("0", "1", "6", "12"),
+  P_value = c(p_value_0, p_value_1, p_value_6, p_value_12),
+  R_squared = c(r_squared_0, r_squared_1, r_squared_6, r_squared_12)
+)
+
+# Set the Month column as row names and remove it from the main table
+rownames(permanova_results) <- permanova_results
+Month <- NULL
+
+# Display the table
+print(permanova_results)
+
+# Save the table as a TSV file
+write.table(permanova_results, file = "permanova_results_by_month.tsv", sep = "\t", row.names = TRUE)
+     
+# P0
+
+# Perform NMDS using the Euclidean distance matrix
+nmds_results_0 <- metaMDS(taxa_0, distance = "euclidean", autotransform = FALSE)
+
+# Extract NMDS scores (points)
+nmds_scores_0 <- as.data.frame(nmds_results_0$points)
+
+# Add metadata to NMDS scores
+nmds_scores_0
+group
+
+meta_0
+group, levels = c("Vaginal Birth", "C-Section Intervention", "C-Section Placebo"))
+    
+    # Create NMDS plot with ellipses and customized colors/shapes
+    p_0 <- ggplot(nmds_scores_0, aes(x = MDS1, y = MDS2, color = Subgroup, fill = Subgroup, shape = Subgroup)) +
+      geom_point(size = 4, stroke = 0.5) +
+      stat_ellipse(type = "t", linetype = "dashed", level = 0.95) +
+      scale_color_manual(values = subgroup_colors) +
+      scale_fill_manual(values = subgroup_colors) +
+      scale_shape_manual(values = subgroup_shapes) +
+      labs(title = paste("Month 0", "\nPERMANOVA p-value:", p_value_0, "\nR² =", r_squared_0),
+           x = "NMDS Dimension 1", 
+           y = "NMDS Dimension 2") +
+      theme_minimal() +
+      theme(legend.position = "right", legend.title = element_blank())
+     
+# P1
+
+# Perform NMDS using the Euclidean distance matrix
+nmds_results_1 <- metaMDS(taxa_1, distance = "euclidean", autotransform = FALSE)
+
+# Extract NMDS scores (points)
+nmds_scores_1 <- as.data.frame(nmds_results_1$points)
+
+# Add metadata to NMDS scores
+nmds_scores_1$Subgroup <- meta$group
+    
+    # Create NMDS plot with ellipses and customized colors/shapes
+    p_1 <- ggplot(nmds_scores_1, aes(x = MDS1, y = MDS2, color = Subgroup, fill = Subgroup, shape = Subgroup)) +
+      geom_point(size = 4, stroke = 0.5) +
+      stat_ellipse(type = "t", linetype = "dashed", level = 0.95) +
+      scale_color_manual(values = subgroup_colors) +
+      scale_fill_manual(values = subgroup_colors) +
+      scale_shape_manual(values = subgroup_shapes) +
+      labs(title = paste("Month 1", "\nPERMANOVA p-value:", p_value_1, "\nR² =", r_squared_1),
+           x = "NMDS Dimension 1", 
+           y = "NMDS Dimension 2") +
+      theme_minimal() +
+      theme(legend.position = "right", legend.title = element_blank())
+     
+# P6
+
+# Perform NMDS using the Euclidean distance matrix
+nmds_results_6 <- metaMDS(taxa_6, distance = "euclidean", autotransform = FALSE)
+
+# Extract NMDS scores (points)
+nmds_scores_6 <- as.data.frame(nmds_results_6$points)
+
+# Add metadata to NMDS scores
+nmds_scores_6$subgroup <- meta$group
+    
+    # Create NMDS plot with ellipses and customized colors/shapes
+    p_6 <- ggplot(nmds_scores_6, aes(x = MDS1, y = MDS2, color = Subgroup, fill = Subgroup, shape = Subgroup)) +
+      geom_point(size = 4, stroke = 0.5) +
+      stat_ellipse(type = "t", linetype = "dashed", level = 0.95) +
+      scale_color_manual(values = subgroup_colors) +
+      scale_fill_manual(values = subgroup_colors) +
+      scale_shape_manual(values = subgroup_shapes) +
+      labs(title = paste("Month 6", "\nPERMANOVA p-value:", p_value_6, "\nR² =", r_squared_6),
+           x = "NMDS Dimension 1", 
+           y = "NMDS Dimension 2") +
+      theme_minimal() +
+      theme(legend.position = "right", legend.title = element_blank())
+     
+# P12
+
+# Perform NMDS using the Euclidean distance matrix
+nmds_results_12 <- metaMDS(taxa_12, distance = "euclidean", autotransform = FALSE)
+
+# Extract NMDS scores (points)
+nmds_scores_12 <- as.data.frame(nmds_results_12$points)
+
+# Add metadata to NMDS scores
+nmds_scores_12$subgroup <- meta$group
+    
+    # Create NMDS plot with ellipses and customized colors/shapes
+    p_12 <- ggplot(nmds_scores_12, aes(x = MDS1, y = MDS2, color = Subgroup, fill = Subgroup, shape = Subgroup)) +
+      geom_point(size = 4, stroke = 0.5) +
+      stat_ellipse(type = "t", linetype = "dashed", level = 0.95) +
+      scale_color_manual(values = subgroup_colors) +
+      scale_fill_manual(values = subgroup_colors) +
+      scale_shape_manual(values = subgroup_shapes) +
+      labs(title = paste("Month 12", "\nPERMANOVA p-value:", p_value_12, "\nR² =", r_squared_12),
+           x = "NMDS Dimension 1", 
+           y = "NMDS Dimension 2") +
+      theme_minimal() +
+      theme(legend.position = "right", legend.title = element_blank())
+     
+# Combine plots
+
+legend <- get_legend(p_0 + theme_classic() + theme(legend.box.margin = margin(0, 0, 0, 12)))
+
+p_0 <- p_0 + theme_classic() + theme(legend.position="none") 
+p_1 <- p_1 + theme_classic() + theme(legend.position="none") 
+p_6 <- p_6 + theme_classic() + theme(legend.position="none")
+p_12 <- p_12 + theme_classic() + theme(legend.position="none") 
+
+# Combine the plots in a 2x2 layout with shared legend
+combined_plot <- plot_grid(p_0, p_1, p_6, p_12,
+                           labels = c('D', 'E', 'F', 'G'),
+                          ncol=2, nrow=2)
+
+combined_plot_legend <- plot_grid(combined_plot, legend, rel_widths = c(3, .4))
+
+#(p_0 | p_1) / (p_6 | p_12) + plot_layout(guides = "collect") & theme(legend.position = "right")
+
+combined_plot_legend
+
+# Save the combined plot as a PDF
+ggsave("PERMANOVA_taxa_composition_children_per_month_combined_with_ellipses.png", 
+       plot = combined_plot_legend, width = 14, height = 10, dpi = 300)
+
+# Pairwise comparison for each month
+# Vag vs. c-intervention, vag vs. c-placebo, c-sec vs. c-placebo
+
+
+# Define colors and shapes for subgroups
+subgroup_colors <- c("C-Section Intervention" = "#4682B4", 
+                     "C-Section Placebo" = "#B0C4DE", 
+                     "Vaginal Birth" = "#C2B280")
+subgroup_shapes <- c("C-Section Intervention" = 22,  
+                     "C-Section Placebo" = 21, 
+                     "Vaginal Birth" = 24)
+
+# Define months for analysis
+months <- c("0", "1", "6", "12")
+
+# Filter metadata and taxa data to only include children (host = 0)
+meta_f_SD_h0 <- meta_f_SD[meta_f_SD$host == 0, ]
+taxa_f_clr_h0 <- taxa_f_clr[rownames(taxa_f_clr) %in% rownames(meta_f_SD_h0), ]
+
+#Make rownames in the same order
+all(rownames(meta_f_SD_h0) == rownames(taxa_f_clr_h0))
+
+table(rownames(meta_f_SD_h0) %in% rownames(taxa_f_clr_h0))
+
+taxa_f_clr_h0 <- taxa_f_clr_h0[match(rownames(meta_f_SD_h0), rownames(taxa_f_clr_h0)), ]
+all.equal(rownames(meta_f_SD_h0), rownames(taxa_f_clr_h0))  # This should return TRUE
+     
+# Vag vs placebo
+
+# Create subsets of metadata and taxa data for each month for children (host = 0)
+meta_p0 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 0 & meta_f_SD_h0$group != "C-Section Intervention",]
+taxa_p0 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_p0), ]
+
+meta_p1 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 1 & meta_f_SD_h0$group != "C-Section Intervention",]
+taxa_p1 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_p1), ]
+
+meta_p6 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 6 & meta_f_SD_h0$group != "C-Section Intervention", ]
+taxa_p6 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_p6), ]
+
+meta_p12 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 12 & meta_f_SD_h0$group != "C-Section Intervention",]
+taxa_p12 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_p12), ]
+
+# Perform PERMANOVA for each month 
+
+  adonis_results_p0 <- adonis2(taxa_p0 ~ meta_p0$group, method = "euclidean", permutations = 99999)
+
+  adonis_results_p1 <- adonis2(taxa_p1 ~ meta_p1$group, method = "euclidean", permutations = 99999)
+  
+  adonis_results_p6 <- adonis2(taxa_p6 ~ meta_p6$group, method = "euclidean", permutations = 99999)
+
+  adonis_results_p12 <- adonis2(taxa_p12 ~ meta_p12$group, method = "euclidean", permutations = 99999)
+
+#Store results
+
+p_value_p0 <- formatC(adonis_results_p0$`Pr(>F)`[1], digits = 10, format = "f")
+r_squared_p0 <- signif(adonis_results_p0$R2[1], digits = 3)
+
+p_value_p1 <- formatC(adonis_results_p1$`Pr(>F)`[1], digits = 10, format = "f")
+r_squared_p1 <- signif(adonis_results_p1$R2[1], digits = 3)
+
+p_value_p6 <- formatC(adonis_results_p6$`Pr(>F)`[1], digits = 10, format = "f")
+r_squared_p6 <- signif(adonis_results_p6$R2[1], digits = 3)
+
+p_value_p12 <- formatC(adonis_results_p12$`Pr(>F)`[1], digits = 10, format = "f")
+r_squared_p12 <- signif(adonis_results_p12$R2[1], digits = 3)
+
+# Create a data frame with months as row names and columns for P-values and R² values
+permanova_vag_vs_placebo <- data.frame(
+  Month = c("0", "1", "6", "12"),
+  R_squared = c(r_squared_p0, r_squared_p1, r_squared_p6, r_squared_p12),
+  P_value = c(p_value_p0, p_value_p1, p_value_p6, p_value_p12)
+)
+
+# Set the Month column as row names and remove it from the main table
+rownames(permanova_vag_vs_placebo) <- permanova_vag_vs_placebo
+Month <- NULL
+
+# Display the table
+print(permanova_vag_vs_placebo)
+
+# Save the table as a TSV file
+write.table(permanova_vag_vs_placebo, file = "permanova_vag_vs_placebo.tsv", sep = "\t", row.names = TRUE)
+     
+# Vag vs intervention
+
+# Create subsets of metadata and taxa data for each month for children (host = 0)
+meta_p0 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 0 & meta_f_SD_h0$group != "C-Section Placebo",]
+taxa_p0 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_p0), ]
+
+meta_p1 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 1 & meta_f_SD_h0$group != "C-Section Placebo",]
+taxa_p1 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_p1), ]
+
+meta_p6 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 6 & meta_f_SD_h0$group != "C-Section Placebo", ]
+taxa_p6 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_p6), ]
+
+meta_p12 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 12 & meta_f_SD_h0$group != "C-Section Placebo",]
+taxa_p12 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_p12), ]
+
+# Perform PERMANOVA for each month 
+
+  adonis_results_p0 <- adonis2(taxa_p0 ~ meta_p0$group, method = "euclidean", permutations = 99999)
+
+  adonis_results_p1 <- adonis2(taxa_p1 ~ meta_p1$group, method = "euclidean", permutations = 99999)
+  
+  adonis_results_p6 <- adonis2(taxa_p6 ~ meta_p6$group, method = "euclidean", permutations = 99999)
+
+  adonis_results_p12 <- adonis2(taxa_p12 ~ meta_p12$group, method = "euclidean", permutations = 99999)
+ 
+  #Store results
+  # Extract p-value and R²
+    p_value_p0 <- format(adonis_results_p0$`Pr(>F)`[1], digits = 4, scientific = FALSE)
+    r_squared_p0 <- format(adonis_results_p0$R2[1], digits = 4, scientific = FALSE)
+    
+     p_value_p1 <- format(adonis_results_p1$`Pr(>F)`[1], digits = 4, scientific = FALSE)
+    r_squared_p1 <- format(adonis_results_p1$R2[1], digits = 4, scientific = FALSE)
+    
+     p_value_p6 <- format(adonis_results_p6$`Pr(>F)`[1], digits = 4, scientific = FALSE)
+    r_squared_p6 <- format(adonis_results_p6$R2[1], digits = 4, scientific = FALSE)
+    
+     p_value_p12 <- format(adonis_results_p12$`Pr(>F)`[1], digits = 4, scientific = FALSE)
+    r_squared_p12 <- format(adonis_results_p12$R2[1], digits = 4, scientific = FALSE)
+    
+# Create a data frame with months as row names and columns for P-values and R² values
+permanova_vag_vs_int <- data.frame(
+  Month = c("0", "1", "6", "12"),
+  P_value = c(p_value_p0, p_value_p1, p_value_p6, p_value_p12),
+  R_squared = c(r_squared_p0, r_squared_p1, r_squared_p6, r_squared_p12)
+)
+
+# Set the Month column as row names and remove it from the main table
+rownames(permanova_vag_vs_int) <- permanova_vag_vs_int
+Month <- NULL
+
+# Display the table
+print(permanova_vag_vs_int)
+
+# Save the table as a TSV file
+write.table(permanova_vag_vs_int, file = "permanova_vag_vs_int.tsv", sep = "\t", row.names = TRUE)
+     
+# Intervention vs placebo
+
+# Create subsets of metadata and taxa data for each month for children (host = 0)
+meta_p0 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 0 & meta_f_SD_h0$group != "Vaginal Birth",]
+taxa_p0 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_p0), ]
+
+meta_p1 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 1 & meta_f_SD_h0$group != "Vaginal Birth",]
+taxa_p1 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_p1), ]
+
+meta_p6 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 6 & meta_f_SD_h0$group != "Vaginal Birth", ]
+taxa_p6 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_p6), ]
+
+meta_p12 <- meta_f_SD_h0[meta_f_SD_h0$timepoint == 12 & meta_f_SD_h0$group != "Vaginal Birth",]
+taxa_p12 <- taxa_f_clr_h0[rownames(taxa_f_clr_h0) %in% rownames(meta_p12), ]
+
+# Perform PERMANOVA for each month 
+
+  adonis_results_p0 <- adonis2(taxa_p0 ~ meta_p0$group, method = "euclidean", permutations = 99999)
+
+  adonis_results_p1 <- adonis2(taxa_p1 ~ meta_p1$group, method = "euclidean", permutations = 99999)
+  
+  adonis_results_p6 <- adonis2(taxa_p6 ~ meta_p6$group, method = "euclidean", permutations = 99999)
+
+  adonis_results_p12 <- adonis2(taxa_p12 ~ meta_p12$group, method = "euclidean", permutations = 99999)
+ 
+  #Store results
+  # Extract p-value and R²
+    p_value_p0 <- format(adonis_results_p0$`Pr(>F)`[1], digits = 4, scientific = FALSE)
+    r_squared_p0 <- format(adonis_results_p0$R2[1], digits = 4, scientific = FALSE)
+    
+     p_value_p1 <- format(adonis_results_p1$`Pr(>F)`[1], digits = 4, scientific = FALSE)
+    r_squared_p1 <- format(adonis_results_p1$R2[1], digits = 4, scientific = FALSE)
+    
+     p_value_p6 <- format(adonis_results_p6$`Pr(>F)`[1], digits = 4, scientific = FALSE)
+    r_squared_p6 <- format(adonis_results_p6$R2[1], digits = 4, scientific = FALSE)
+    
+     p_value_p12 <- format(adonis_results_p12$`Pr(>F)`[1], digits = 4, scientific = FALSE)
+    r_squared_p12 <- format(adonis_results_p12$R2[1], digits = 4, scientific = FALSE)
+    
+# Create a data frame with months as row names and columns for P-values and R² values
+permanova_pla_vs_int <- data.frame(
+  Month = c("0", "1", "6", "12"),
+  P_value = c(p_value_p0, p_value_p1, p_value_p6, p_value_p12),
+  R_squared = c(r_squared_p0, r_squared_p1, r_squared_p6, r_squared_p12)
+)
+
+# Set the Month column as row names and remove it from the main table
+rownames(permanova_pla_vs_int) <- permanova_vag_vs_int
+Month <- NULL
+
+# Display the table
+print(permanova_pla_vs_int)
+
+# Save the table as a TSV file
+write.table(permanova_pla_vs_int, file = "permanova_placebo_vs_int.tsv", sep = "\t", row.names = TRUE)
