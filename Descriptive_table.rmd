@@ -1,0 +1,236 @@
+library(readxl)
+library(dplyr)
+library(table1)
+library(htmltools)
+library(IRdisplay)
+
+
+display_jupyter <- function(x) {
+  css <- system.file("table1_defaults_1.0/table1_defaults.css", package="table1")
+  css <- paste(readLines(css), collapse="\n")
+  x <- htmltools::tagList(htmltools::tags
+div(class="Rtable1", x))
+  IRdisplay::display_html(as.character(x))
+}
+     
+# Read in data
+metadata <- read_excel("FEB2026_RoMaNs_metadata.xlsx", col_types = "text")
+metadata$Studienummer <- gsub(" ", "", metadata
+Studienummer <- gsub("Ö", "O", metadata$Studienummer)
+
+oneyear <- read_excel("JULY2025_oneyear.xlsx", col_types = "text")
+oneyear$Studienummer <- gsub("Ö", "O", oneyear$Studienummer)
+
+randomization <- read.csv("../1_Decontamination/full_data.csv")
+randomization$snr <- gsub("Ö", "O", randomization$snr)
+
+metadata  <- metadata %>%
+  group_by(Studienummer) %>%
+  summarise(across(everything(), ~ first(na.omit(.))), .groups = "drop")
+
+colnames(oneyear) <- c("ID", "snr", "breastfeeding", "breastfeeding_stopped", "household_number", 
+                       "pets", "preschool", "preschool_age_months", "dagmamma", "dagmamma_age_months",
+                       "doctor_visit", "why_doctor", "signed")
+
+oneyear$snr <- gsub("Ö", "O", oneyear
+ID <- NULL
+
+
+randomization <- select(randomization, snr, group)
+randomization <- unique(randomization)
+
+# Clean data   
+# Remove those excluded
+
+
+table(metadata$'Stort tack för hjälpen! Om du vill tillägga något kan du göra det nedan')                                                                                                             
+toMatch <- c("xkludera", "utgar", "Utgar", "akut", "Exklkuderad", "hoppat", "antib", 
+             "avbrot", "gammal", "avbröt", "Utgår", "utgår")
+
+metadata$excluded <- ifelse(grepl(paste(toMatch,collapse="|"), 
+                                  metadata$'Stort tack för hjälpen! Om du vill tillägga något kan du göra det nedan'), 1, 0)
+metadata <- filter(metadata, excluded==0)
+                    
+#Join dataframes
+meta <- left_join(randomization, metadata, by=c("snr"="Studienummer"))
+meta <- left_join(meta, oneyear, by="snr")
+
+colnames(meta) <- c("Studienummer", "group",
+                    "ID", "Start_time", "Completion_time", "Email", "Name", "Last_mod_time",
+                    "Parity", "BMI", "Length", "Job", "Birth_country", "M_Date_of_birth", "Previous_miscarriages",
+                    "Pregnancy_complications", "Drugs_during_pregnancy", "Inskrivningsdatum", "Delivery_date",
+                    "Pregnancy_length", "Sex_child", "Start_of_birth", "End_of_birth", "Drugs_during_birth", 
+                    "Birth_weight_g", "Birth_length_cm", "Head_circumf_cm",
+                    "Child_drug_during_birth", "Apgar_1_min", "Apgar_5_min", "Apgar_10_min",
+                    "Neonatal_vard", "Diagnosis_barn_hemgang", "Comments", "excluded",
+                   "breastfeeding", "breastfeeding_stopped", "household_number", 
+                       "pets", "preschool", "preschool_age_months", "dagmamma", "dagmamma_age_months",
+                       "doctor_visit", "why_doctor", "signed")
+     
+
+meta$Hospital[grepl("U", meta$Studienummer)] <- "Uppsala"
+meta$Hospital[grepl("J", meta$Studienummer)] <- "Jönköping"
+meta$Hospital[grepl("LN", meta$Studienummer)] <- "Linköping"
+meta$Hospital[grepl("O", meta$Studienummer)] <- "Örebro"
+meta$Hospital[grepl("NUS", meta$Studienummer)] <- "Umeå"
+
+meta$Hospital <- as.factor(meta$Hospital)
+
+
+meta$Previous_miscarriages[meta$Previous_miscarriages == "Ja, ett" |
+                           meta$Previous_miscarriages == "Ja, ett;"] <- "1"
+meta$Previous_miscarriages[meta$Previous_miscarriages == "Nej" |
+                           meta$Previous_miscarriages == "Nej;"] <- "0"
+meta$Previous_miscarriages[meta$Previous_miscarriages == "Ja, fler" |
+                           meta$Previous_miscarriages == "Ja, fler;"] <- ">1"
+
+meta$Apgar_1_min <- as.numeric(metaApgar_1_min) 
+meta$Apgar_1_min_group <- NA
+metaApgar_1_min_group <- ifelse(meta$Apgar_1_min < 7, "<7", ">7")
+
+meta$Apgar_5_min <- as.numeric(metaApgar_5_min) 
+meta$Apgar_5_min_group <- NA
+metaApgar_5_min_group <- ifelse(meta$Apgar_5_min < 7, "<7", ">7")
+
+meta$Apgar_10_min <- as.numeric(meta$Apgar_10_min)
+meta$Apgar_10_min_group <- NA
+meta$Apgar_10_min < 7, "<7", ">7")
+
+meta$Birth_weight_g <- as.numeric(meta$Birth_weight_g)
+Birth_weight_g_group <- NA
+metaBirth_weight_g_group[meta$Birth_weight_g<2500] <- "Low birth weight"
+metaBirth_weight_g_group[meta$Birth_weight_g>=2500 &
+                         meta$Birth_weight_g<=4200] <- "Normal birth weight"
+metaBirth_weight_g_group[meta$Birth_weight_g>4200] <- "High birth weight"
+
+meta$Birth_length_cm <- gsub(",", ".", meta$Birth_length_cm)
+meta$Birth_length_cm <- as.numeric(meta$Birth_length_cm)
+
+meta$Head_circumf_cm <- gsub(",", ".", meta$Head_circumf_cm)
+meta$Head_circumf_cm <- as.numeric(meta$Head_circumf_cm) 
+
+meta$group <- as.factor(meta$group)
+meta$Parity <- as.factor(meta$Parity)
+meta$BMI <- as.factor(meta$BMI)
+meta$Birth_country <- as.factor(meta$Birth_country)
+meta$Previous_miscarriages <- as.factor(meta$Previous_miscarriages)
+meta$Sex_child <- as.factor(meta$Sex_child)
+meta$Birth_weight_g_group <- as.factor(meta$Birth_weight_g_group)
+
+meta$Apgar_1_min_group <- as.factor(metaApgar_1_min_group)
+meta$Apgar_5_min_group <- as.factor(metaApgar_5_min_group)
+meta$Apgar_10_min_group <- as.factor(meta$Apgar_10_min_group)
+
+meta$Pregnancy_length_weeks <- sub("\+.*", "", meta$Pregnancy_length_weeks)
+meta$Pregnancy_length_days <- sub('.*\+', '', meta$Pregnancy_length_days)
+
+meta$Pregnancy_length_weeks <- as.numeric(meta$Pregnancy_length_weeks)
+
+names(meta)[duplicated(names(meta))]
+
+meta$breastfeeding <- ifelse((meta$breastfeeding == "ja" | meta$breastfeeding == "Ja"), "Ja", "Nej")
+
+meta$breastfeeding_stopped=="12-16"] <- "14"
+meta$breastfeeding_stopped=="30-35"] <- "32"
+meta$breastfeeding_stopped <- as.numeric(meta$breastfeeding_stopped)
+
+meta$household_number[meta$household_number=="3-5"] <- "4"
+meta$household_number=="4-6"] <- "5"
+meta$household_number <- as.numeric(meta$household_number
+meta$household_number <- ifelse(meta$household_number == "3", "<= 3", "> 3")
+meta$household_number <- as.factor(meta$household_number)
+                                    
+meta$preschool == "ja", "Ja", "Nej")
+ 
+# Table 1
+#Select included samples
+
+samples1 <- read.csv("../2_RA_filtering/skin_decontam_filtered.csv")
+samples1 <- select(samples1, X)
+
+samples2 <- read.csv("../2_RA_filtering/fec_decontam_filtered.csv")
+samples2 <- select(samples2, X)
+
+samples3 <- read.csv("../2_RA_filtering/vag_decontam_filtered.csv")
+samples3 <- select(samples3, X)
+
+samples4 <- read.csv("../2_RA_filtering/saliv_decontam_filtered.csv")
+samples4 <- select(samples4, X)
+
+samples <- read.csv("../1_Decontamination/full_data.csv")
+samples <- select(samples, snr, sample_info, sampleID)
+
+samples <- filter(samples, sampleID %in% samples1$X |
+                 sampleID %in% samples2$X |
+                 sampleID %in% samples3$X |
+                 sampleID %in% samples4$X)
+samples <- select(samples, snr)
+samples <- unique(samples)
+
+sapply(meta[c(
+  "Hospital","Parity","BMI","Birth_country","household_number",
+  "Previous_miscarriages","Pregnancy_complications","Pregnancy_length_weeks",
+  "Sex_child","Birth_weight_g_group","Birth_length_cm","Head_circumf_cm",
+  "Apgar_1_min_group","Apgar_5_min_group","Apgar_10_min_group",
+  "Neonatal_vard","breastfeeding","breastfeeding_stopped","preschool"
+)], function(x) length(unique(x[!is.na(x)])))
+     
+check <- read.csv("../1_Decontamination/full_data.csv")
+check <- filter(check, snr %in% samples$snr)
+       
+meta <- filter(meta, meta$Studienummer %in% checksnr) 
+meta <- select(meta, Studienummer, group, Hospital, Parity, BMI, Birth_country, household_number, 
+               Previous_miscarriages, Pregnancy_complications, Pregnancy_length_weeks, Sex_child, Birth_weight_g_group, 
+               Birth_length_cm, Head_circumf_cm, Apgar_1_min_group, Apgar_5_min_group, Apgar_10_min_group, Neonatal_vard, 
+               breastfeeding, breastfeeding_stopped, preschool) 
+
+meta <- unique(meta)
+
+meta %>%
+  group_by(Studienummer) %>%
+  filter(n() > 1) %>%
+  arrange(Studienummer)
+
+# Function to compute p-values
+pvalue <- function(x, ...) {
+  y <- unlist(x)
+  g <- factor(rep(1:length(x), times = sapply(x, length)))
+
+  if (is.numeric(y)) {
+    p <- anova(lm(y ~ g))$`Pr(>F)`[1]   # ANOVA for 3 groups
+  } else {
+    p <- chisq.test(table(y, g))$p.value
+  }
+
+  c("", format.pval(p, digits = 3, eps = 0.001))
+}
+     
+
+x <- table1(~ Hospital +
+            Parity + 
+            BMI + 
+            Birth_country + 
+            household_number +
+            Previous_miscarriages +
+            Pregnancy_complications +
+            Pregnancy_length_weeks +
+            Sex_child +
+            Birth_weight_g_group +
+            Birth_length_cm +
+            Head_circumf_cm +
+            Apgar_1_min_group +
+            Apgar_5_min_group +
+            Apgar_10_min_group +
+            Neonatal_vard +
+            breastfeeding +
+            breastfeeding_stopped +
+            preschool |  
+       group, 
+       data=meta,
+    overall=c(left="Total"),
+           extra.col = list(`P-value` = pvalue))
+
+display_jupyter(x)
+     
+table1 <- as.data.frame(x)
+write.csv(table1, "table1.csv")
