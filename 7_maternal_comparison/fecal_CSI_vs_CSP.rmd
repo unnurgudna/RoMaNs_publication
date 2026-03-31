@@ -1,0 +1,93 @@
+library(MetBrewer) 
+library(vegan)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(doSNOW)
+library(dplyr)
+library(cowplot)
+library(e1071)
+library(purrr)
+
+# Read files
+# Read meta file
+meta_f_SD <- read.csv("../1_Decontamination/full_data.csv", row.names = 1)
+# Read fecal metaphlan file (taxa), CLR transformed, - decontam taxa
+taxa_f_clr <- read.csv(file="../3_CLR_transformation/20250523_fecal_CLR.csv", row.names = 1)
+
+meta_f_SD <- filter(meta_f_SD, rownames(meta_f_SD) %in% rownames(taxa_f_clr))
+
+#Make sure the rows match
+taxa_f_clr <- taxa_f_clr[match(rownames(meta_f_SD), rownames(taxa_f_clr)), ]
+all.equal(rownames(meta_f_SD), rownames(taxa_f_clr))  # This should return TRUE
+
+# Extract timepoint
+meta_f_SD$timepoint[grepl("child", meta_f_SD$group_sample_type)] <- "Child" 
+meta_f_SD$timepoint[grepl("mother", meta_f_SD$group_sample_type)] <- "Mother" 
+
+meta_f_SD <- filter(meta_f_SD, timepoint=="Mother")
+      
+# Beta diversity
+
+#Make rownames in the same order
+all(rownames(meta_f_SD) == rownames(taxa_f_clr))
+
+taxa_f_clr <- taxa_f_clr[match(rownames(meta_f_SD), rownames(taxa_f_clr)), ]
+all.equal(rownames(meta_f_SD), rownames(taxa_f_clr))  # This should return TRUE
+     
+# Pregnancy samples: CS-I vs CS-P
+
+meta_p0 <- meta_f_SD[meta_f_SD$group == "C-Section Intervention" |
+                         meta_f_SD$group == "C-Section Placebo", ]
+taxa_p0 <- taxa_f_clr[rownames(taxa_f_clr) %in% rownames(meta_p0), ]
+
+adonis_results_p0 <- adonis2(taxa_p0 ~ meta_p0$group, method = "euclidean", permutations = 99999)
+
+#Store results
+p_value_p0 <- formatC(adonis_results_p0$`Pr(>F)`[1], digits = 10, format = "f")
+r_squared_p0 <- signif(adonis_results_p0$R2[1], digits = 3)
+
+# Alpha diversity
+
+vag_RA <- read.csv("../2_RA_filtering/fec_decontam_filtered.csv", row.names=1)
+meta <- read.csv("../1_Decontamination/full_data.csv", row.names=1)
+
+meta <- select(meta, group, group_sample_type, sampleID)
+
+meta$timepoint <- NA
+meta$timepoint[grepl("child", meta$group_sample_type)] <- "Child" 
+meta$timepoint[grepl("mother", meta$group_sample_type)] <- "Mother"
+
+meta <- filter(meta, timepoint=="Mother")
+
+meta <- filter(meta, meta$sampleID %in% rownames(vag_RA))
+vag_RA <- filter(vag_RA, rownames(vag_RA) %in% meta$sampleID)
+
+vag_RA <- vag_RA[match(rownames(meta), rownames(vag_RA)), ]
+all.equal(rownames(meta), rownames(vag_RA))  # This should return TRUE
+
+vag_RA <- cbind(vag_RA, meta)
+
+vag_RA$richness <- specnumber(select(vag_RA, -c(group, group_sample_type, sampleID, timepoint)))
+vag_RA$shannon <- diversity(select(vag_RA, -c(group, group_sample_type, sampleID, timepoint, richness)), index = "shannon")
+vag_RA$invsimpson <- diversity(select(vag_RA, -c(group, group_sample_type, sampleID, timepoint, richness, shannon)), index = "invsimpson")
+vag_RA$evenness <- vag_RA$shannon/log(vag_RA$richness)
+
+vag_RA <- filter(vag_RA, group!="Vaginal Birth")
+vag_RA$group <- factor(vag_RA$group, levels=c("C-Section Intervention", "C-Section Placebo"))
+
+wilcoxon_shannon <- wilcox.test(shannon ~ group, 
+                                data = filter(vag_RA, group!="Vaginal birth"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(invsimpson ~ group, 
+                                data = filter(vag_RA, group!="Vaginal birth"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(richness ~ group, 
+                                data = filter(vag_RA, group!="Vaginal birth"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(evenness ~ group, 
+                                data = filter(vag_RA, group!="Vaginal birth"))
+wilcoxon_shannon
