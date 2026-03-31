@@ -1,0 +1,185 @@
+library(MetBrewer) 
+library(vegan)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(doSNOW)
+library(dplyr)
+library(cowplot)
+library(e1071)
+library(purrr)
+library(table1)
+library(htmltools)
+library(IRdisplay)
+library(readxl)
+
+
+oneyear <- read_excel("../9_Descriptive_table/JULY2025_oneyear.xlsx")
+colnames(oneyear) <- c("ID", "snr", "breastfeeding", "breastfeeding_stopped", "household_number", 
+                       "pets", "preschool", "preschool_age_months", "dagmamma", "dagmamma_age_months",
+                       "doctor_visit", "why_doctor", "signed")
+oneyear <- select(oneyear, -why_doctor, -signed)
+oneyear$snr <- gsub("Ö", "O", oneyear$snr)
+oneyear$ID <- NULL
+
+# Read meta file
+meta_f_SD <- read.csv("../1_Decontamination/full_data.csv", row.names = 1)
+
+# Read fecal metafhlan file (taxa), CLR transformed, - decontam taxa
+taxa_f_clr <- read.csv(file="../3_CLR_transformation/20250523_fecal_CLR.csv", row.names = 1)
+
+meta_f_SD <- filter(meta_f_SD, rownames(meta_f_SD) %in% rownames(taxa_f_clr))
+
+#Make sure the rows match
+taxa_f_clr <- taxa_f_clr[match(rownames(meta_f_SD), rownames(taxa_f_clr)), ]
+all.equal(rownames(meta_f_SD), rownames(taxa_f_clr))  # This should return TRUE
+
+# Remove rectal swabs
+meta_f_SD <- filter(meta_f_SD, !grepl("rect", meta_f_SD$group_sample_type))
+taxa_f_clr <- filter(taxa_f_clr, rownames(taxa_f_clr) %in% rownames(meta_f_SD))
+
+# Create host and timepoint columns in meta_f_SD
+# Extract timepoint (either 'month_X' or 'newborn')
+# Extract month number
+meta_f_SD$timepoint <- sub("^month_(\d+).*", "\1", meta_f_SD$group_sample_type) 
+# Set "newborn" as 0
+meta_f_SD$timepoint[grepl("^newborn", meta_f_SD$group_sample_type)] <- "0" 
+
+# Convert timepoint to numeric
+meta_f_SD$timepoint <- as.numeric(meta_f_SD$timepoint)
+
+# Extract host (1 = mother or 0 = child based on presence of "mother" or "child")
+meta_f_SD$host <- ifelse(grepl("mother", meta_f_SD$group_sample_type), "1", "0")
+meta_f_SD$host <- as.numeric(meta_f_SD$host) 
+meta_f_SD$is_control <- NULL
+
+write.csv(meta_f_SD, "meta_f_SD.csv")
+
+meta_f_SD <- left_join(meta_f_SD, oneyear, by="snr")
+
+meta_f_SD$pets <- ifelse(grepl("nej", meta_f_SD$pets) | is.na(meta_f_SD$pets) | grepl("Nej", meta_f_SD$pets),
+                         "Nej",
+                         "Ja")
+
+meta_f_SD$preschool <- ifelse(grepl("ja", meta_f_SD$preschool), "Yes", "No")
+meta_f_SD$doctor_visit <- ifelse(grepl("ja", meta_f_SD$doctor_visit) | grepl("Ja", meta_f_SD$doctor_visit),
+                               "Yes", "No")
+meta_f_SD$breastfeeding <- ifelse(grepl("ja", meta_f_SD$breastfeeding) | grepl("Ja", meta_f_SD$breastfeeding),
+                               "Yes", "No")
+
+meta_f_SD$breastfeeding_stopped[meta_f_SD$breastfeeding_stopped=="12-16"] <- "14"
+meta_f_SD$breastfeeding_stopped[meta_f_SD$breastfeeding_stopped=="30-35"] <- "32"
+meta_f_SD$breastfeeding_stopped[is.na(meta_f_SD$breastfeeding_stopped)] <- "0"
+meta_f_SD$breastfeeding_stopped <- as.numeric(meta_f_SDbreastfeeding_stopped) 
+meta_f_SD$breastfeeding_stopped[meta_f_SD$breastfeeding_stopped==0] <- "0"
+meta_f_SDbreastfeeding_stopped[meta_f_SD$breastfeeding_stopped>0 &
+                               meta_f_SD$breastfeeding_stopped<7] <- "1-6"
+meta_f_SDbreast$feeding_stopped[meta_f_SD$breastfeeding_stopped>6 &
+                               meta_f_SD$breastfeeding_stopped<13] <- "7-12"
+meta_f_SDbreastfeeding_stopped[meta_f_SD$breastfeeding_stopped>12] <- ">12"
+
+meta_f_SD$household_number[meta_f_SD$household_number == "3-5"] <- 4
+meta_f_SD$household_number[meta_f_SD$household_number == "4-6"] <- 5
+meta_f_SD$household_number[meta_f_SD$household_number>3 &
+                          meta_f_SD$household_number<6] <- "4-5"
+meta_f_SD$household_number[meta_f_SD$household_number>5] <- ">5"
+     
+
+#Month 0
+
+permanova <- select(meta_f_SD, sampleID, group, timepoint, host, breastfeeding, breastfeeding_stopped, 
+                    household_number, pets, preschool, doctor_visit)
+     
+permanova_0 <- filter(permanova, host==0 & timepoint==0)
+permanova_clr_0 <- filter(taxa_f_clr, rownames(taxa_f_clr) %in% permanova_0$sampleID)
+permanova_0 <- permanova_0[order(match(permanova_0$sampleID, rownames(permanova_clr_0))), ]
+
+table(permanova_0$sampleID == rownames(permanova_clr_0))
+
+permanova_fecal_bc <- vegdist(permanova_clr_0, "euclidean")
+
+permanova_0 <- permanova_0 %>% mutate_if(is.numeric, as.factor)
+permanova_0 <- permanova_0 %>% mutate_if(is.character, as.factor)
+permanova_0 <- select(permanova_0, -sampleID, -timepoint, -host)
+     
+# Create a dataframe with appropriate colnames
+columns <- c("variable", "p_values", "R2_values", "betadisp_p")
+adonis_bc <- data.frame(matrix(nrow = ncol(permanova_0), ncol = length(columns))) 
+colnames(adonis_bc) <- columns
+
+# Create a list to hold the adonis results
+full_table <- vector(mode ='list', length = ncol(permanova_0))
+
+# For loop to get adonis results
+for(i in 1:ncol(permanova_0)) {
+
+    # Assing a name to each row
+    adonis_bc$variable[[i]] <- colnames(permanova_0[i])
+    
+    # Perform adonis
+    full_table[[i]] <- adonis2(formula = permanova_fecal_bc ~ permanova_0[[i]], na.action = na.omit, permutations = 9999)
+    
+    # Save p-values to column in adonis_aitch named p_values
+    adonis_bc$pvalues[[i]] <- full_table[[i]]`Pr(>F)`[1]
+    
+    # Save R2-values to column in adonis_aitch named R2_values
+    adonis_bc$R2values[[i]] <- full_table[[i]]R2[1]
+
+    # Perform betadisper
+    betadisp <- betadisper(permanova_fecal_bc, permanova_0[[i]])
+
+    # Save the p-value for betadisper in column names disp_results
+    adonis_bc$betadisp[[i]] <- anova(betadisp, na.action=na.omit)`Pr(>F)`[1]
+}
+     
+# Month 1
+
+permanova_1 <- filter(permanova, host==0 & timepoint==1)
+permanova_clr_1 <- filter(taxa_f_clr, rownames(taxa_f_clr) %in% permanova_1$sampleID)
+permanova_1 <- permanova_1[order(match(permanova_1$sampleID, rownames(permanova_clr_1))), ]
+
+table(permanova_1$sampleID == rownames(permanova_clr_1))
+
+permanova_fecal_bc <- vegdist(permanova_clr_1, "euclidean")
+     
+permanova_1 <- permanova_1 %>% mutate_if(is.numeric, as.factor)
+permanova_1 <- permanova_1 %>% mutate_if(is.character, as.factor)
+
+permanova_1 <- select(permanova_1, -sampleID, -timepoint, -host)
+
+# Create a dataframe with appropriate colnames
+columns <- c("variable", "p_values", "R2_values", "betadisp_p")
+adonis_bc <- data.frame(matrix(nrow = ncol(permanova_1), ncol = length(columns))) 
+colnames(adonis_bc) <- columns
+
+# Create a list to hold the adonis results
+full_table <- vector(mode ='list', length = ncol(permanova_1))
+     
+# For loop to get adonis results
+for(i in 1:ncol(permanova_1)) {
+
+    # Assing a name to each row
+    adonis_bc$variable[[i]] <- colnames(permanova_1[i])
+    
+    # Perform adonis
+    full_table[[i]] <- adonis2(formula = permanova_fecal_bc ~ permanova_1[[i]], na.action = na.omit, permutations = 9999)
+    
+    # Save p-values to column in adonis_aitch named p_values
+    adonis_bc$pvalues[[i]] <- full_table[[i]]`Pr(>F)`[1]
+    
+    # Save R2-values to column in adonis_aitch named R2_values
+    adonis_bc$R2values[[i]] <- full_table[[i]]R2[1]
+
+    # Perform betadisper
+    betadisp <- betadisper(permanova_fecal_bc, permanova_1[[i]])
+
+    # Save the p-value for betadisper in column names disp_results
+    adonis_bc$betadisp[[i]] <- anova(betadisp, na.action=na.omit)`Pr(>F)`[1]
+`Pr(>F)`[1]
+    
+}
+
+# Same for month 6 and 12
+
+
+     
