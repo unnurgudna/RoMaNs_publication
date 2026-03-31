@@ -1,0 +1,543 @@
+library(dplyr)
+library(vegan)
+     
+meta <- read.csv("../1_Decontamination/full_data.csv", row.names=1)
+fecal_RA <- read.csv("../2_RA_filtering/fec_decontam_filtered.csv", row.names=1)
+meta <- read.csv("../1_Decontamination/full_data.csv", row.names=1)
+
+meta <- select(meta, group, sample_info, sampleID)
+
+sample_info <- ifelse(grepl("newborn", meta$sample_info), "Newborn", meta)
+sample_info <- ifelse(grepl("month_1.child", meta$sample_info), "Month 1", meta)
+sample_info <- ifelse(grepl("month_6.child", meta$sample_info), "Month 6", meta)
+sample_info <- ifelse(grepl("month_12.child", meta$sample_info), "Month 12", meta)
+sample_info <- factor(meta$sample_info, levels = c("Newborn", "Month 1", "Month 6", "Month 12"))
+
+meta <- filter(meta, sample_info!='month_1.mother_dna_faeces')
+meta <- filter(meta, meta$sampleID %in% rownames(fecal_RA))
+fecal_RA <- filter(fecal_RA, rownames(fecal_RA) %in% meta$sampleID)
+
+colnames(meta) <- c("comparison", "timepoint", "sampleID")
+
+fecal_RA <- fecal_RA[match(rownames(meta), rownames(fecal_RA)), ]
+all.equal(rownames(meta), rownames(fecal_RA))  # This should return TRUE
+
+fecal_RA <- cbind(fecal_RA, meta)
+
+# Add alpha diversity metrics
+
+fecal_RA$richness <- specnumber(select(fecal_RA, -c(comparison, timepoint, sampleID)))
+fecal_RA$shannon <- diversity(select(fecal_RA, -c(comparison, timepoint, sampleID, richness)), index = "shannon")
+fecal_RA$invsimpson <- diversity(select(fecal_RA, -c(comparison, timepoint, sampleID, richness, shannon)), index = "invsimpson")
+fecal_RA$evenness <- fecal_RA$shannon/log(fecal_RA$richness)
+
+# ANOVA comparison
+# Newborn
+
+sppdiv_aov <- aov(shannon ~ comparison, data = filter(fecal_RA, timepoint=="Newborn"))
+summary(sppdiv_aov)
+
+sppdiv_aov <- aov(invsimpson ~ comparison, data = filter(fecal_RA, timepoint=="Newborn"))
+summary(sppdiv_aov)
+
+sppdiv_aov <- aov(richness ~ comparison, data = filter(fecal_RA, timepoint=="Newborn"))
+summary(sppdiv_aov)
+
+sppdiv_aov <- aov(evenness ~ comparison, data = filter(fecal_RA, timepoint=="Newborn"))
+summary(sppdiv_aov)
+     
+#Month 1
+sppdiv_aov <- aov(shannon ~ comparison, data = filter(fecal_RA, timepoint=="Month 1"))
+summary(sppdiv_aov)
+
+sppdiv_aov <- aov(invsimpson ~ comparison, data = filter(fecal_RA, timepoint=="Month 1"))
+summary(sppdiv_aov)
+
+sppdiv_aov <- aov(richness ~ comparison, data = filter(fecal_RA, timepoint=="Month 1"))
+summary(sppdiv_aov)
+
+sppdiv_aov <- aov(evenness ~ comparison, data = filter(fecal_RA, timepoint=="Month 1"))
+summary(sppdiv_aov)
+                
+# Month 6
+sppdiv_aov <- aov(shannon ~ comparison, data = filter(fecal_RA, timepoint=="Month 6"))
+summary(sppdiv_aov)
+
+sppdiv_aov <- aov(invsimpson ~ comparison, data = filter(fecal_RA, timepoint=="Month 6"))
+summary(sppdiv_aov)
+
+sppdiv_aov <- aov(richness ~ comparison, data = filter(fecal_RA, timepoint=="Month 6"))
+summary(sppdiv_aov)
+
+sppdiv_aov <- aov(evenness ~ comparison, data = filter(fecal_RA, timepoint=="Month 6"))
+summary(sppdiv_aov)
+                    
+# Month 12
+sppdiv_aov <- aov(shannon ~ comparison, data = filter(fecal_RA, timepoint=="Month 12"))
+summary(sppdiv_aov)
+
+sppdiv_aov <- aov(invsimpson ~ comparison, data = filter(fecal_RA, timepoint=="Month 12"))
+summary(sppdiv_aov)
+
+sppdiv_aov <- aov(richness ~ comparison, data = filter(fecal_RA, timepoint=="Month 12"))
+summary(sppdiv_aov)
+
+sppdiv_aov <- aov(evenness ~ comparison, data = filter(fecal_RA, timepoint=="Month 12"))
+summary(sppdiv_aov)
+                  
+# Wilcoxon comparison
+wilcoxon_v_pla <- droplevels(filter(fecal_RA, (comparison=="Vaginal Birth" | comparison=="C-Section Placebo")))
+wilcoxon_v_int <- droplevels(filter(fecal_RA, (comparison=="Vaginal Birth" | comparison=="C-Section Intervention")))
+wilcoxon_pla_int <- droplevels(filter(fecal_RA, (comparison=="C-Section Intervention" | comparison=="C-Section Placebo")))
+     
+#Newborn
+# Vag vs Placebo
+wilcoxon_shannon <- wilcox.test(shannon ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Newborn"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(invsimpson ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Newborn"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(richness ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Newborn"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(evenness ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Newborn"))
+wilcoxon_shannon
+     
+# Vag vs Intervention
+
+wilcoxon_shannon <- wilcox.test(shannon ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Newborn"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(invsimpson ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Newborn"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(richness ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Newborn"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(evenness ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Newborn"))
+wilcoxon_shannon
+     
+# Intervention vs Placebo
+
+wilcoxon_shannon <- wilcox.test(shannon ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Newborn"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(invsimpson ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Newborn"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(richness ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Newborn"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(evenness ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Newborn"))
+wilcoxon_shannon
+     
+# Month 1
+Vag vs Placebo
+
+wilcoxon_shannon <- wilcox.test(shannon ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Month 1"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(invsimpson ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Month 1"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(richness ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Month 1"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(evenness ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Month 1"))
+wilcoxon_shannon
+
+# Vag vs Intervention
+
+wilcoxon_shannon <- wilcox.test(shannon ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Month 1"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(invsimpson ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Month 1"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(richness ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Month 1"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(evenness ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Month 1"))
+wilcoxon_shannon
+     
+# Intervention vs Placebo
+
+wilcoxon_shannon <- wilcox.test(shannon ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Month 1"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(invsimpson ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Month 1"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(richness ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Month 1"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(evenness ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Month 1"))
+wilcoxon_shannon
+     
+# Month 6
+# Vag vs Placebo
+
+wilcoxon_shannon <- wilcox.test(shannon ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Month 6"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(invsimpson ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Month 6"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(richness ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Month 6"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(evenness ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Month 6"))
+wilcoxon_shannon
+
+# Vag vs Intervention
+
+wilcoxon_shannon <- wilcox.test(shannon ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Month 6"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(invsimpson ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Month 6"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(richness ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Month 6"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(evenness ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Month 6"))
+wilcoxon_shannon
+
+# Intervention vs Placebo
+
+wilcoxon_shannon <- wilcox.test(shannon ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Month 6"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(invsimpson ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Month 6"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(richness ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Month 6"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(evenness ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Month 6"))
+wilcoxon_shannon
+
+# Month 12
+# Vag vs Placebo
+
+wilcoxon_shannon <- wilcox.test(shannon ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Month 12"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(invsimpson ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Month 12"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(richness ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Month 12"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(evenness ~ comparison, 
+                                data = filter(wilcoxon_v_pla, timepoint=="Month 12"))
+wilcoxon_shannon
+
+# Vag vs Intervention
+
+wilcoxon_shannon <- wilcox.test(shannon ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Month 12"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(invsimpson ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Month 12"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(richness ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Month 12"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(evenness ~ comparison, 
+                                data = filter(wilcoxon_v_int, timepoint=="Month 12"))
+wilcoxon_shannon
+
+# Intervention vs Placebo
+
+wilcoxon_shannon <- wilcox.test(shannon ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Month 12"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(invsimpson ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Month 12"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(richness ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Month 12"))
+wilcoxon_shannon
+
+wilcoxon_shannon <- wilcox.test(evenness ~ comparison, 
+                                data = filter(wilcoxon_pla_int, timepoint=="Month 12"))
+wilcoxon_shannon
+     
+# Violin plots
+
+fecal_RA$comparison <- factor(fecal_RA$comparison,
+                              levels=c("Vaginal Birth", "C-Section Placebo", "C-Section Intervention"))
+     
+# Shannon
+
+library(ggplot2)
+library(ggpubr)
+library(rstatix)
+
+stat.test <- fecal_RA %>%
+  group_by(timepoint) %>%
+  wilcox_test(shannon ~ comparison, p.adjust.method = "BH")
+#stat.test
+
+stat.test <- stat.test %>%
+  add_xy_position(x = "timepoint", dodge = 0.8)
+
+stat.test <- filter(stat.test, p<=0.05)
+stat.test
+     
+shannon <- ggplot(fecal_RA, aes(x=timepoint, y=shannon)) +
+    geom_violin(aes(fill = comparison), position=position_dodge(0.75)) +
+    scale_y_continuous(trans='log10') +
+    theme_classic() +
+    geom_boxplot(aes(fill = comparison), width=0.2, outlier.shape = NA, position=position_dodge(0.75)) +
+    scale_fill_manual(values = c("C-Section Intervention" = "#0072B2", 
+                                 "C-Section Placebo" = "#56B4E9", 
+                                 "Vaginal Birth" = "#E69F00")) +
+    theme(legend.title=element_blank(), plot.title = element_text(size=14),
+         axis.title.x = element_text(size = 20),
+          axis.title.y = element_text(size = 15)) +
+    theme(axis.text.x = element_text(size=14),
+          axis.text.y = element_text(size=14)) +
+    xlab("") +
+    ylab("log10 Shannon diversity") +
+    stat_pvalue_manual(stat.test, label = "p.adj.signif", tip.length = 0.01, bracket.nudge.y = -2.2)
+#    scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+
+# Inverse Simpson
+
+stat.test <- fecal_RA %>%
+  group_by(timepoint) %>%
+  wilcox_test(invsimpson ~ comparison, p.adjust.method = "BH")
+#stat.test
+
+stat.test <- stat.test %>%
+  add_xy_position(x = "timepoint", dodge = 0.8)
+
+stat.test <- filter(stat.test, p<=0.05)
+stat.test
+     
+inv_simpson <- ggplot(fecal_RA, aes(x=timepoint, y=invsimpson)) +
+    geom_violin(aes(fill = comparison), position=position_dodge(0.75)) +
+    scale_y_continuous(trans='log10') +
+    theme_classic() +
+    geom_boxplot(aes(fill = comparison), width=0.2, outlier.shape = NA, position=position_dodge(0.75)) +
+    scale_fill_manual(values = c("C-Section Intervention" = "#0072B2", 
+                                 "C-Section Placebo" = "#56B4E9", 
+                                 "Vaginal Birth" = "#E69F00")) +
+    theme(legend.title=element_blank(), plot.title = element_text(size=14),
+         axis.title.x = element_text(size = 20),
+          axis.title.y = element_text(size = 15)) +
+    theme(axis.text.x = element_text(size=14),
+          axis.text.y = element_text(size=14)) +
+    xlab("") +
+    ylab("log10 Inverse Simpson") +
+    stat_pvalue_manual(stat.test, label = "p.adj.signif", tip.length = 0.01, bracket.nudge.y = -10.2)
+#    scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+
+
+# Richness
+
+stat.test <- fecal_RA %>%
+  group_by(timepoint) %>%
+  wilcox_test(richness ~ comparison, p.adjust.method = "BH")
+#stat.test
+
+stat.test <- stat.test %>%
+  add_xy_position(x = "timepoint", dodge = 0.8)
+
+stat.test <- filter(stat.test, p.adj<=0.05)
+stat.test
+
+stat.test <- stat.test %>%
+ mutate(y.position = c(110))
+     
+richness <- ggplot(fecal_RA, aes(x=timepoint, y=richness)) +
+    geom_violin(aes(fill = comparison), position=position_dodge(0.75)) +
+    scale_y_continuous(trans='log10') +
+    theme_classic() +
+    geom_boxplot(aes(fill = comparison), width=0.2, outlier.shape = NA, position=position_dodge(0.75)) +
+    scale_fill_manual(values = c("C-Section Intervention" = "#0072B2", 
+                                 "C-Section Placebo" = "#56B4E9", 
+                                 "Vaginal Birth" = "#E69F00")) +
+    theme(legend.title=element_blank(), plot.title = element_text(size=14),
+         axis.title.x = element_text(size = 20),
+          axis.title.y = element_text(size = 15)) +
+    theme(axis.text.x = element_text(size=14),
+          axis.text.y = element_text(size=14)) +
+    xlab("") +
+    ylab("log10 Richness") +
+    stat_pvalue_manual(stat.test, label = "p.adj.signif", tip.length = 0.01, bracket.nudge.y = -108)
+#    scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+    
+# Evenness
+
+stat.test <- fecal_RA %>%
+  group_by(timepoint) %>%
+  wilcox_test(evenness ~ comparison, p.adjust.method = "BH")
+#stat.test
+
+stat.test <- stat.test %>%
+  add_xy_position(x = "timepoint", dodge = 0.8)
+
+stat.test <- filter(stat.test, p<=0.05)
+stat.test
+
+evenness <- ggplot(fecal_RA, aes(x=timepoint, y=evenness)) +
+    geom_violin(aes(fill = comparison), position=position_dodge(0.75)) +
+    scale_y_continuous(trans='log10') +
+    theme_classic() +
+    geom_boxplot(aes(fill = comparison), width=0.2, outlier.shape = NA, position=position_dodge(0.75)) +
+    scale_fill_manual(values = c("C-Section Intervention" = "#0072B2", 
+                                 "C-Section Placebo" = "#56B4E9", 
+                                 "Vaginal Birth" = "#E69F00")) +
+    theme(legend.title=element_blank(), plot.title = element_text(size=14),
+          legend.text=element_text(size=14),
+          legend.position=c(0.70,0.20),
+         axis.title.x = element_text(size = 20),
+          axis.title.y = element_text(size = 15)) +
+    theme(axis.text.x = element_text(size=14),
+          axis.text.y = element_text(size=14)) +
+    xlab("") +
+    ylab("log10 Evenness") +
+    stat_pvalue_manual(stat.test, label = "p.adj.signif", tip.length = 0.01, bracket.nudge.y = -0.6)
+#    scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+    
+
+# Combine
+
+library(cowplot)
+
+shannon <- shannon + theme(legend.position="none") 
+inv_simpson <- inv_simpson + theme(legend.position="none") 
+richness <- richness + theme(legend.position="none")
+
+combined_plot <- plot_grid(shannon, inv_simpson, richness, evenness,
+                          ncol=2, nrow=2)
+
+ggsave("fecal_violins.png", 
+       plot = combined_plot, width = 14, height = 10, dpi = 300)
+
+
+# Make a table and highlight significant variables
+
+library(gridExtra)
+
+#Create dataframe
+alphatable <- data.frame(Time = c("Newborn", "", "", "",
+                                 "Month 1", "", "", "",
+                                 "Month 6", "", "", "",
+                                 "Month 12", "", "", ""),
+                         Comparison = c("", "V vs CS-P", "V vs CS-I", "CS-P vs CS-I",
+           "", "V vs CS-P", "V vs CS-I", "CS-P vs CS-I",
+           "", "V vs CS-P", "V vs CS-I", "CS-P vs CS-I",
+           "", "V vs CS-P", "V vs CS-I", "CS-P vs CS-I"),
+                        Feces = c("", "0.0004*", "0.16", "0.08",
+           "", "0.50", "0.93", "0.74",
+           "", "0.41", "0.38", "0.22",
+           "", "0.16", "0.34", "0.06"),
+                         Saliva = c("", "", "", "",
+            "", "0.34", "0.64", "0.25",
+            "", "0.03*", "0.66", "0.19",
+            "", "0.31", "0.25", "0.98"),
+                         Skin = c("", "2.2e-16*", "0.006*", "9e-10*",
+          "", "0.31", "0.77", "0.43",
+          "", "0.08", "0.09", "0.91",
+          "", "0.01*", "0.20", "0.37"))
+
+
+base_theme <- ttheme_minimal(
+  core = list(
+    fg_params = list(fontface = "plain"),
+    padding = unit(c(4,4), "mm")  # more padding to prevent overflow
+  ),
+  colhead = list(fg_params = list(fontface = "bold"))
+)
+
+# Create table
+tbl <- tableGrob(alphatable, rows = NULL, theme = base_theme)
+
+# Column-wise alignment
+col_align <- list(
+  left = 1,
+  right = 2,
+  center = 3:5
+)
+
+# Draw
+grid.newpage()
+grid.draw(tbl)
+
+table_plot <- plot_grid(tbl, shannon, richness,
+                          ncol=3, nrow=1,
+                       labels="AUTO")
+ggsave("fecal_violins_table.png", 
+       plot = table_plot, width = 15, height = 5, dpi = 300)
+     
+
+# Add beta diversity plot
+library(png)
+
+img <- png::readPNG("../4_Beta_diversity/PERMANOVA_taxa_composition_children_per_month_combined_with_ellipses.png")
+
+g <- grid::rasterGrob(img)
+#gridExtra::grid.arrange(g)
+
+table_plot_beta <- plot_grid(table_plot,
+                               NULL,   # empty row
+                             g,
+                          ncol=1, nrow=3,
+                       labels=c("", ""),
+                            rel_heights = c(1, 0.2, 2))
+ggsave("fecal_violins_table_beta.pdf", 
+       plot = table_plot_beta, width = 15, height = 15, dpi = 300)
+     
+
+
+
+     
