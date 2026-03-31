@@ -1,0 +1,26 @@
+library(MetBrewer) 
+library(vegan)
+library(grid)
+library(doSNOW)
+library(dplyr)
+library(e1071)
+library(compositions)
+
+#Read data
+fecal <- read.csv("../2_RA_filtering/fec_decontam_filtered.csv", row.names=1)
+
+
+# Step 1: Find the smallest non-zero value
+min_non_zero_value <- min(fecal[fecal > 0])
+
+# Step 2: Replace all zero values with 1/10 of the smallest non-zero value
+fecal <- fecal + (min_non_zero_value / 10)
+
+# Step 3: CLR Transformation (using 'clr' from the 'compositions' package)
+clr_transformed_taxa <- clr(fecal)
+
+# Convert the CLR-transformed data into a data frame
+clr_fecal_taxa <- as.data.frame(clr_transformed_taxa)
+
+# Save clr_fecal_taxa
+write.csv(clr_fecal_taxa, "20250523_fecal_CLR.csv")
