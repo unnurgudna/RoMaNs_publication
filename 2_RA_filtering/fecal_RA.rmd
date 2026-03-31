@@ -1,0 +1,259 @@
+library(dplyr)
+library(knitr)
+library(ggplot2)
+library(ggpubr)
+
+# Read metaphlan_fecal file 
+taxa <- read.csv(file="240827mpa_all_samples_species_only.csv", row.names = 1, check.names = FALSE)
+taxa <- t(taxa)
+
+taxa_d <- taxa[, !grepl("k__Bacteria.p__Firmicutes.c__Bacilli.o__Lactobacillales.f__Lactobacillaceae.g__Lactobacillus.s__Lactobacillus_iners.t__SGB7025|k__Bacteria.p__Firmicutes.c__Bacilli.o__Lactobacillales.f__Aerococcaceae.g__Falseniella.s__Falseniella_ignava.t__SGB7810|k__Bacteria.p__Firmicutes.c__Tissierellia.o__Tissierellia_unclassified.f__Tissierellia_unclassified.g__Ezakiella.s__Ezakiella_massiliensis.t__SGB6731", colnames(taxa))]
+
+# Read meta file
+meta1 <- read.csv(file="full_meta_spike.csv", row.names = 1, check.names = FALSE)
+meta1 <- filter(meta1, grepl("faec", meta1$sample_info))
+
+taxa <- as.data.frame(taxa)
+Sample <- gsub("X114_RoMaNs__|__E.*", "", taxa$Sample)
+taxa <- filter(taxa, taxa$Sample %in% meta1
+taxa$Sample <- NULL
+taxa <- as.matrix(taxa)
+
+# Step 1: Spike_in data: "acidophilus" column from data
+
+# Identify the column that contains "acidiphilus
+spike_in <- grep("acidiphilus", colnames(taxa), value = TRUE)
+
+# Create a new data frame with the identified column
+spike_in_data <- taxa[, spike_in, drop = FALSE]
+head(spike_in_data)
+
+# Rename the column to "spike_in"
+colnames(spike_in_data) <- "spike_in"
+     
+# Step 2: Spike_in_sample_info: add sample_info from meta to spike_in_data
+
+# Subset meta1 to include only the rows present in spike_in_data
+meta1_subset <- meta1[rownames(meta1) %in% rownames(spike_in_data), ]
+
+# Extract the 'sample_info' column as a data frame (not as a vector)
+meta1_sample_info <- meta1_subset[, "sample_info", drop = FALSE]
+
+# Add sample-info to spike_in_data
+spike_in_sample_info <- merge(spike_in_data, meta1_sample_info, by = "row.names", all = FALSE)
+
+# Set the row names back to the original row names
+rownames(spike_in_sample_info) <- spike_in_sample_info$Row.names
+
+# Remove the "Row.names" column since it's now the row names
+spike_in_sample_info <- spike_in_sample_info[, -which(names(spike_in_sample_info) == "Row.names")]
+
+write.csv(spike_in_sample_info, "spike_in_sample_info.csv")
+     
+# Step 3: taxa_fecal: extract spike-in from taxa and renormalize
+
+# Identify columns that contain the text "acidiphilus" in their names
+remove_aci <- grepl("acidiphilus", colnames(taxa), ignore.case = TRUE)
+remove_aci1 <- grepl("acidiphilus", colnames(taxa_d), ignore.case = TRUE)
+
+# Remove those columns from the taxa data frame
+taxa_minus_spike <- taxa[, !remove_aci]
+taxa_minus_spike1 <- taxa_d[, !remove_aci1]
+     
+# Compute the sum of each row in taxa
+row_sums <- rowSums(taxa, na.rm = TRUE)
+summary(row_sums) #mean: 100
+
+row_sums1 <- rowSums(taxa_d, na.rm = TRUE)
+summary(row_sums1) #mean: 99.22
+
+# Compute the sum of each row in taxa_minus_spike
+row_sums <- rowSums(taxa_minus_spike, na.rm = TRUE)
+summary(row_sums1) #mean: 99.22
+
+row_sums1 <- rowSums(taxa_minus_spike1, na.rm = TRUE)
+summary(row_sums1) #mean: 53.99
+
+# Renormalize the data frame by dividing each element by the row sum and multiplying by 100 to get percentages
+taxa_minus_spike_100 <- sweep(taxa_minus_spike, 1, row_sums, "/") * 100
+taxa_minus_spike1_100 <- sweep(taxa_minus_spike1, 1, row_sums1, "/") * 100
+
+# Compute the sum of each row in renormalized taxa_minus_spike_100
+row_sums <- rowSums(taxa_minus_spike_100, na.rm = TRUE)
+summary(row_sums1) #mean: 53.99
+
+row_sums1 <- rowSums(taxa_minus_spike1_100, na.rm = TRUE)
+summary(row_sums1) #mean: 100
+
+# Subset meta1 to include the relevant columns (assuming 'SampleID' and 'group_sample_types')
+meta_subset <- meta1$group_sample_type
+
+# Save taxa-minus_spike_100
+write.csv(taxa_minus_spike1_100, "taxa_fecal_decontam.csv")
+
+# Convert taxa_minus_spike_100 to taxa_fecal 
+taxa_fecal_t <- t(taxa_minus_spike1_100)
+taxa_fecal_d <- as.data.frame(taxa_fecal_t)
+rowSums(taxa_fecal_d)
+     
+# Step 4: Apply filters to taxa_fecal and summarize in a table
+# Choose the number of the smallest subgroup and set '>=' as 1/10 or 1/5 (try both)
+
+# Count the number of samples per subgroup
+subgroup_counts_before_filter <- meta1_subset %>%
+  group_by(sample_info) %>%     # Group by the subgroup column
+  summarise(sample_count = n())      # Count the number of samples in each subgroup
+
+print(subgroup_counts_before_filter) # Display the counts
+
+# Smallest group: month_12.child_dna_faeces: 72
+  #1/10: 7.2
+  #1/5: 14.4
+  
+# Switch rows and columns in taxa_fecal
+taxa_fecal_t <-t(taxa_fecal_d) #3025 rows
+rowSums(taxa_fecal_t)
+
+# 0%
+# Filter 0
+# Apply a filter to keep taxa present in at least 1 sample with >0% abundance
+taxa_filter_0 <- taxa_fecal_d[rowSums(taxa_fecal_d != 0) > 0, ]
+dim(taxa_filter_0) #2294
+
+# 0.1%
+# Filter 1
+# Apply a filter to keep taxa present in at least 7 samples with >0.1% abundance
+taxa_filter_1 <- taxa_fecal_d[rowSums(taxa_fecal_d > 0.1) >= 7, ]
+
+# Check how many rows are left after filter 1
+num_remaining_1 <- nrow(taxa_filter_1)
+print(paste("Number of taxa remaining after filtering: ", num_remaining_1)) 
+
+# Filter 2
+# Apply a filter to keep taxa present in at least 14 samples with >0.1% abundance
+taxa_filter_2 <- taxa_fecal_d[rowSums(taxa_fecal_d > 0.1) >= 14, ]
+
+# Check how many rows are left after filter 2
+num_remaining_2 <- nrow(taxa_filter_2)
+print(paste("Number of taxa remaining after filtering: ", num_remaining_2)) 
+     
+# 0.01%
+# Filter 3
+# Apply a filter to keep taxa present in at least 7 samples with >0.01% abundance
+taxa_filter_3 <- taxa_fecal_d[rowSums(taxa_fecal_d > 0.01) >= 7, ]
+
+# Check how many rows are left after filter 3
+num_remaining_3 <- nrow(taxa_filter_3)
+print(paste("Number of taxa remaining after filtering: ", num_remaining_3)) 
+
+# Filter 4
+# Apply a filter to keep taxa present in at least 14 samples with >0.01% abundance
+taxa_filter_4 <- taxa_fecal_d[rowSums(taxa_fecal_d > 0.01) >= 14, ]
+
+# Check how many rows are left after filter 4
+num_remaining_4 <- nrow(taxa_filter_4)
+print(paste("Number of taxa remaining after filtering: ", num_remaining_4)) 
+
+# 0.001%
+#Filter 5
+# Apply a filter to keep taxa present in at least 7 samples with >0.001% abundance
+taxa_filter_5 <- taxa_fecal_d[rowSums(taxa_fecal_d > 0.001) >= 7, ]
+
+# Check how many rows are left after filter 5
+num_remaining_5 <- nrow(taxa_filter_5)
+print(paste("Number of taxa remaining after filtering: ", num_remaining_5))
+
+#decontam
+
+taxa_filter_5_d <- taxa_fecal_d[rowSums(taxa_fecal_d > 0.001) >= 7, ]
+
+# Check how many rows are left after filter 5
+num_remaining_5 <- nrow(taxa_filter_5_d)
+print(paste("Number of taxa remaining after filtering: ", num_remaining_5))
+
+# Save filter 5
+write.csv(taxa_filter_5_d, "taxa_fecal_5_d.csv")
+
+# Filter 6
+# Apply a filter to keep taxa present in at least 14 samples with >0.001% abundance
+taxa_filter_6 <- taxa_fecal_d[rowSums(taxa_fecal_d > 0.001) >= 14, ]
+
+# Check how many rows are left after filter 6
+num_remaining_6 <- nrow(taxa_filter_6)
+print(paste("Number of taxa remaining after filtering: ", num_remaining_6)) 
+
+# Create a filtering summary table of remaning rows
+filter_summary <- data.frame(
+  Filter = c("Filter 0", "Filter 1", "Filter 2", "Filter 3", "Filter 4", "Filter 5", "Filter 6"),
+  Threshold = c(0, 0.1, 0.1, 0.01, 0.01, 0.001, 0.001),
+  Min_Samples = c(1, 7, 14, 7, 14, 7, 14),
+  Rows_Left = c(2373, num_remaining_1, num_remaining_2, num_remaining_3, num_remaining_4, num_remaining_5, num_remaining_6)
+)
+
+# Save the summary table 
+write.csv(filter_summary, file = "filtering_summary.csv")
+     
+# Step 7
+
+# Transpose taxa_filter
+taxa_lip_2 <- t(taxa_filter_2)
+
+# Calculate library size for each sample
+lib.size <- apply(taxa_lip_2, 1, sum)
+
+# View the library size
+View(lib.size)
+
+# Save a barplot of library sizes to a PDF file
+pdf("lib.size_2373_taxa2.pdf", height=6, width=30)
+barplot(lib.size, main = "Library Size per Sample", xlab = "Samples", ylab = "Library Size", col = "green")
+dev.off()
+
+# Capture the original row names
+original_rows <- rownames((taxa_fecal_d))
+
+# Capture the remaining rows names after Filter 3
+kept_rows_3 <- rownames((taxa_filter_3))
+
+# Identify the rows that were left out after Filter 3
+excluded_rows_3 <- setdiff(original_rows, kept_rows_3)
+
+# Capture the remaining rows names after Filter 5
+kept_rows_5 <- rownames((taxa_filter_5))
+
+# Identify the rows that were left out after Filter 5
+excluded_rows_5 <- setdiff(original_rows, kept_rows_5)
+
+# Capture the remaining rows names after Filter 0
+kept_rows_0 <- rownames((taxa_filter_0))
+
+# Identify the rows that were left out after Filter 0
+excluded_rows_0 <- setdiff(original_rows, kept_rows_0)
+
+# Identify the rows that differ between Filter 0 and Filter 5
+excluded_rows_0_diff_5 <- setdiff(excluded_rows_5, excluded_rows_0)
+
+# Hitta gemensamma rader
+common_rows <- intersect(excluded_rows_0, excluded_rows_5)
+
+# Visa de gemensamma raderna
+#print(common_rows)
+     
+length(excluded_rows_5)
+length(kept_rows_5)
+     
+# Step 9: Remove bacteria based on this filtering from our decontaminated dataset
+
+fec_decontam <- read.csv("../1_Decontamination/3_Fecal/20250522_taxa_fecal_decontam.csv", row.names=1)
+colnames(fec_decontam) <- gsub("\.", "|", colnames(fec_decontam))
+
+row_sums <- rowSums(fec_decontam, na.rm = TRUE)
+summary(row_sums) #mean: 100
+
+
+dim(fec_decontam)
+fec_decontam <- fec_decontam[, which((names(fec_decontam) %in% kept_rows_5)==TRUE)]
+dim(fec_decontam)
+
+write.csv(fec_decontam, "fec_decontam_filtered.csv")
+     
