@@ -10,7 +10,7 @@ library(ggpubr)
 
 
 # Set color theme
-# C-Section Intervention" = "#005288
+# C-Section Intervention" = "#005288"
 # C-Section Placebo" = "#56B4E9"
 # Vaginal Birth" = "#E69F00"
 
