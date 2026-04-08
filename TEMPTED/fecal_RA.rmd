@@ -1,0 +1,450 @@
+library(dplyr)
+library(tempted)
+library(plotly)
+library(RColorBrewer)
+library(phyloseq)
+library(cowplot)
+library(tidyverse)
+library(rstatix)
+library(ggpubr)
+
+
+# Set color theme
+# C-Section Intervention" = "#005288
+# C-Section Placebo" = "#56B4E9"
+# Vaginal Birth" = "#E69F00"
+
+col_group <- c("#005288","#56B4E9", "#E69F00")
+col_microbe <- c(brewer.pal(6,'Set1')[c(2,4)], brewer.pal(6,'Set2')[4])
+     
+# Read in datasets
+
+meta <- read.csv("../1_Decontamination/full_data.csv")
+meta <- filter(meta, !(grepl("mother", meta$sample_info)))
+meta <- filter(meta, grepl("faeces", meta$sample_info))
+
+meta_table <- select(meta, sampleID, snr, group, sample_info)
+
+meta_table$timepoint <- NA
+meta_table$timepoint[grepl("newborn", meta_table$sample_info)] <- 0
+meta_table$timepoint[grepl("month_1", meta_table$sample_info)] <- 1
+meta_table$timepoint[grepl("month_6", meta_table$sample_info)] <- 6
+meta_table$timepoint[grepl("month_12", meta_table$sample_info)] <- 12
+
+meta_table$sample_info <- NULL
+
+# Remove those that only sent in one sample
+
+meta_table <- meta_table %>%
+  group_by(snr) %>%
+  mutate(frequency = n()) %>%
+ ungroup()
+
+meta_table <- filter(meta_table, frequency!=1)
+
+# Microbiome data
+
+fecal <- read.csv("../2_RA_filtering/fec_decontam_filtered.csv")
+
+fecal <- filter(fecal, fecal$X %in% meta_table$sampleID)
+meta <- filter(meta, meta$X %in% fecal$X)
+meta <- arrange(meta, X)
+fecal <- arrange(fecal, X)
+rownames(meta) <- meta$sample_ID
+fecal <- select(fecal, -X)
+
+count_table <- as.data.frame(fecal)
+rownames(count_table) <- rownames(meta)
+
+meta_table <- as.data.frame(meta_table)
+count_table <- as.matrix(count_table)
+
+rownames(count_table) <- meta_table$sample_ID
+rownames(meta_table) <- meta_table$sample_ID
+
+# match rows of different data frames
+# check number of samples
+table(rownames(count_table)==rownames(meta_table))
+ 
+metauni <- unique(meta_table[,c('snr', 'group')])
+
+length(unique(meta_table$group)
+
+# Run TEMPTED and remove the mean structure of the temporal sensor
+# https://search.r-project.org/CRAN/refmans/tempted/html/svd_centralize.html
+
+res_count <- format_tempted(count_table,
+                            meta_table$timepoint,
+                            meta_table$snr,
+                         threshold=0.95,
+                         transform="clr",
+                         pseudo=0.5)
+
+datalist_raw_conc <- format_tempted(count_table,
+                                    meta_table$timepoint,
+                                    meta_table$snr,
+                         threshold=0.95,
+                         transform="none")
+     
+svd_conc <- svd_centralize(res_count, 1)
+res_tempted_conc <- tempted(svd_conc$datlist, r = 3, resolution = 51, smooth=1e-4)
+
+# Low-dimensional representation of subjects
+
+A_data <- metauni
+rownames(A_data) <- A_data$snr
+A_data <- -cbind(res_tempted_conc$A_hat[rownames(A_data),], A_data)
+
+p_subj <- ggplot(data=A_data, aes(x=A_data[,3], y=A_data[,1], color=group)) + 
+  geom_point(aes(color=group)) +
+  labs(x='Component 3', y='Component 1', title='Subject Loading') +
+    scale_color_manual(values = col_group) +
+    theme_bw()
+print(p_subj)
+     
+
+# Plot the temporal loadings
+
+p_time <- plot_time_loading(res_tempted_conc, r=3) + 
+  geom_line(size=1.5) + 
+  labs(title='Temporal Loadings', x='Month') +
+    theme_bw() +
+    scale_x_continuous(breaks=c(0, 1, 6, 12))
+print(p_time)
+
+# Plot trajectory of log ratio of total abundance of top features
+# Log ratio of the abundance of the ASVs with top positive loadings and top negative loadings
+
+
+ratio_feat <- ratio_feature(res_tempted_conc, datalist_raw_conc, pct=0.05,
+                            absolute=TRUE)
+
+tab_feat_ratio <- ratio_feat$metafeature_ratio
+colnames(tab_feat_ratio)[2] <- 'snr'
+tab_feat_ratio <- merge(tab_feat_ratio, metauni)
+head(tab_feat_ratio)
+
+## summed up, by mean and sd
+reshape_feat_ratio <- reshape(tab_feat_ratio, 
+                              idvar=c("snr","timepoint") , 
+                              v.names=c("value"), timevar="PC",
+                              direction="wide")
+CC <- grep('PC',colnames(reshape_feat_ratio))
+
+colnames(reshape_feat_ratio)[CC] <- paste0('PC', 1:3)
+feature_mat_ratio <- reshape_feat_ratio[,CC]
+colnames(feature_mat_ratio) <- paste0("PC", 1:3)
+
+
+time_vec_ratio <- reshape_feat_ratio$timepoint
+group_vec_ratio <- factor(reshape_feat_ratio$group)
+p_feat_ratio_summary <- plot_feature_summary(feature_mat_ratio, 
+                                             time_vec_ratio, 
+                                             group_vec_ratio, bws=12, nrow=1)
+feature_mat_ratio1 <- feature_mat_ratio[,1,drop=FALSE]
+
+
+p_feat_ratio_summary <- plot_feature_summary(feature_mat_ratio1, 
+                                             time_vec_ratio, 
+                                             group_vec_ratio, bws=12, nrow=1) + 
+  xlab('Month') + theme_bw() + 
+  theme(legend.position=c(0.85,0.15), 
+        legend.background = element_rect(fill="white", size=0.2, linetype="solid", 
+                                                                     colour ="black")) + 
+  scale_fill_manual("Group", values=col_group) +
+  scale_color_manual("Group", values=col_group) +
+  scale_x_continuous(breaks=c(0, 1, 6, 12)) +
+  theme(strip.text = element_blank(), 
+        strip.background = element_blank()) +
+theme(legend.position="none")
+
+p_feat_ratio_summary
+
+# Plot log ratio of top features
+
+p_feat_ratio_summary_split <- plot_feature_summary(feature_mat_ratio, 
+                                           time_vec_ratio, 
+                                           group_vec_ratio, bws=8, nrow=1) + 
+  xlab('Month') + theme_bw() + 
+  scale_color_manual(values=col_group, name="Group") + scale_fill_manual(values=col_group, name="Group") +
+    scale_x_continuous(breaks=c(0, 1, 6, 12))
+
+p_feat_ratio_summary_split 
+     
+
+# Bar plot of top feature loading
+# Feature loading: Top 5% in Absolute value
+       
+color_RB <- brewer.pal(3,'Set1')[1:2]
+     
+top <- as.data.frame(ratio_feat$toppct)
+dim(top)
+top <- filter(top, PC1 == TRUE | PC2 == TRUE | PC3 == TRUE)
+top$direction <- "Top"
+dim(top)
+
+bottom <- as.data.frame(ratio_feat$bottompct)
+dim(bottom)
+bottom<- filter(bottom, PC1 == TRUE | PC2 == TRUE | PC3 == TRUE)
+bottom$direction <- "Bottom"
+dim(bottom)
+
+total <- rbind(top, bottom)
+total$direction <- as.factor(total$direction)
+head(total)
+     
+direction <- unique(select(meta_table, snr, group))
+rownames(direction) <- direction$snr
+direction$sampleID <- NULL
+
+direction <- merge(as.data.frame(res_tempted_conc$A_hat), direction, by=0)
+head(direction)
+dim(direction)
+
+direction$group <- factor(direction$group, levels=c("Vaginal Birth", "C-Section Placebo", "C-Section Intervention"))
+
+my_comparisons <- list( c("Vaginal Birth", "C-Section Placebo"), 
+                       c("Vaginal Birth", "C-Section Intervention"), 
+                       c("C-Section Intervention", "C-Section Placebo") )
+
+
+col_group <- c("Vaginal Birth" = "#E69F00",
+               "C-Section Placebo" = "#56B4E9", 
+               "C-Section Intervention" = "#005288")
+     
+
+comp1 <- ggplot(direction, aes(x = group, y = PC1, fill=group)) +
+  geom_boxplot() +
+    theme_bw() +
+    labs(x="", y="PC1 loading") +
+    scale_fill_manual(values=col_group) +
+    theme(legend.position="none") +
+     theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+    stat_compare_means(comparisons = my_comparisons, label.y = c(0.26, 0.33, 0.29), label = "p.signif")
+comp1
+
+comp2 <- ggplot(direction, aes(x = group, y = PC2, fill=group)) +
+  geom_boxplot() +
+    theme_bw() +
+    labs(x="", y="PC2 loading") +
+    theme(legend.position="none") +
+    scale_fill_manual(values=col_group) +
+    theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+    stat_compare_means(comparisons = my_comparisons, label.y = c(0.26, 0.33, 0.29), label = "p.signif")
+comp2
+
+comp3 <- ggplot(direction, aes(x = group, y = PC3, fill=group)) +
+  geom_boxplot() +
+    theme_bw() +
+    labs(x="", y="PC3 loading") +
+    theme(legend.position="none") +
+    scale_fill_manual(values=col_group) +
+    theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+    stat_compare_means(comparisons = my_comparisons, label.y = c(0.26, 0.33, 0.29), label = "p.signif")
+comp3
+     
+
+counts <- as.data.frame(res_tempted_conc$B_hat)
+colnames(counts) <- c("loading_PC1", "loading_PC2", "loading_PC3")
+head(counts)
+
+PC1 <- merge(filter(total, PC1==TRUE), counts, by=0)
+PC2 <- merge(filter(total, PC2==TRUE), counts, by=0)
+PC3 <- merge(filter(total, PC3==TRUE), counts, by=0)
+     
+PC1$Row.names <- gsub(".*s__","",PC1$Row.names)
+PC1$Row.names <- gsub("\.t*","",PC1$Row.names)
+PC2$Row.names <- gsub(".*s__","",PC2$Row.names)
+PC2$Row.names <- gsub("\.t*","",PC2$Row.names)
+PC2$Row.names <- gsub(".*s__","",PC3$Row.names)
+PC2$Row.names <- gsub("\.t*","",PC3$Row.names)
+     
+PC1$Row.names <- factor(PC1$Row.names, levels=unique(PC1$Row.names))
+PC2$Row.names <- factor(PC2$Row.names, levels=unique(PC2$Row.names))
+PC3$Row.names <- factor(PC3$Row.names, levels=unique(PC3$Row.names))
+
+p_bar_1 <- PC1 %>% 
+    mutate(Row.names = reorder(Row.names, loading_PC1)) %>%
+  ggplot(aes(x=Row.names, y=loading_PC1)) + 
+  geom_bar(stat="identity", colour="black", width = 0.5, aes(fill = direction)) + 
+  geom_hline(yintercept = 0) +
+  theme_bw() +
+    theme(text = element_text(size = 14)) +
+  coord_flip() + 
+  labs(y = "", x = "") + 
+    scale_fill_manual(values=color_RB) +
+  theme(legend.position="none")
+
+p_bar_2 <- PC2 %>% 
+        mutate(Row.names = reorder(Row.names, loading_PC2)) %>%
+  ggplot(aes(x=Row.names, y=loading_PC2)) + 
+  geom_bar(stat="identity", colour="black", width = 0.5, aes(fill = direction)) + 
+  geom_hline(yintercept = 0) +
+  theme_bw() +
+    theme(text = element_text(size = 14)) +
+  coord_flip() + 
+  labs(y = "", x = "") + 
+    scale_fill_manual(values=color_RB) +
+  theme(legend.position="none")
+
+p_bar_3 <- PC3 %>% 
+        mutate(Row.names = reorder(Row.names, loading_PC3)) %>%
+  ggplot(aes(x=Row.names, y=loading_PC3)) + 
+  geom_bar(stat="identity", colour="black", width = 0.5, aes(fill = direction)) + 
+  geom_hline(yintercept = 0) +
+  theme_bw() +
+    theme(text = element_text(size = 14)) +
+  coord_flip() + 
+  labs(y = "", x = "") +
+    scale_fill_manual(values=color_RB) +
+  theme(legend.position="none")
+
+# RA of shared species
+
+merged <- cbind(count_table, select(meta_table, group, timepoint))
+merged <- as.data.frame(t(merged))
+merged$Row.names <- rownames(merged)
+merged$Row.names <- gsub(".*s__","",merged$Row.names)
+merged$Row.names <- gsub("\.t*","",merged$Row.names)
+rownames(merged) <- merged$Row.names
+merged <- as.data.frame(t(merged))
+
+merged <- filter(merged, group!="group")
+
+merged <- select(merged, group, Bifidobacterium_bifidum__SGB17256, Bifidobacterium_breve__SGB17247, Ruminococcus_gnavus__SGB4584)
+merged$Bifidobacterium_bifidum__SGB17256 <- as.numeric(merged$Bifidobacterium_bifidum__SGB17256) 
+merged$Bifidobacterium_breve__SGB17247 <- as.numeric(mergedBifidobacterium_breve__SGB17247) 
+merged$Ruminococcus_gnavus__SGB4584 <- as.numeric(mergedRuminococcus_gnavus__SGB4584) 
+merged$group[merged$group=="C-Section Placebo"] <- "C-Section\nPlacebo"
+merged$group[merged$group=="C-Section Intervention"] <- "C-Section\nIntervention"
+merged$group[merged$group=="Vaginal Birth"] <- "Vaginal\nBirth"
+
+my_comparisons <- list( c("Vaginal\nBirth", "C-Section\nPlacebo"), 
+                       c("Vaginal\nBirth", "C-Section\nIntervention"), 
+                       c("C-Section\nIntervention", "C-Section\nPlacebo") )
+
+species_RA_1 <- ggplot(merged, aes(x =group, y=Bifidobacterium_bifidum__SGB17256, fill=group)) +
+  geom_boxplot() +
+    geom_jitter(color="black", size=0.4, alpha=0.9) +
+    theme_bw() +
+    labs(title="Bifidobacterium_bifidum__SGB17256", y="Relative abundance", x="") +
+    scale_fill_manual(values=col_group) +
+    theme(legend.position="none") +
+    theme(plot.title = element_text(size=10)) +
+    stat_compare_means(comparisons = my_comparisons, label.y = c(102, 95, 107), label = "p.signif")
+species_RA_1
+
+species_RA_2 <- ggplot(merged, aes(x =group, y=Bifidobacterium_breve__SGB17247, fill=group)) +
+  geom_boxplot() +
+    geom_jitter(color="black", size=0.4, alpha=0.9) +
+    theme_bw() +
+    labs(title="Bifidobacterium_breve__SGB17247", y="Relative abundance", x="") +
+    scale_fill_manual(values=col_group) +
+    theme(legend.position="none") +
+    theme(plot.title = element_text(size=10)) +
+    stat_compare_means(comparisons = my_comparisons, label.y = c(92, 85, 96), label = "p.signif")
+species_RA_2
+     
+species_RA_3 <- ggplot(merged, aes(x =group, y=Ruminococcus_gnavus__SGB4584, fill=group)) +
+  geom_boxplot() +
+    geom_jitter(color="black", size=0.4, alpha=0.9) +
+    theme_bw() +
+    labs(title="Ruminococcus_gnavus__SGB4584", y="Relative abundance", x="") +
+    scale_fill_manual(values=col_group) +
+    theme(legend.position="none") +
+    theme(plot.title = element_text(size=10)) +
+    stat_compare_means(comparisons = my_comparisons, label.y = c(77, 71, 81), label = "p.signif")
+species_RA_3
+
+# Dynamic plotting of selected species
+# https://bmcgenomics.biomedcentral.com/articles/10.1186/s12864-021-07948-w
+
+dynamic <- left_join(rownames_to_column(merged), rownames_to_column(select(meta_table, timepoint, snr)), by="rowname")
+
+dynamic0 <- filter(dynamic, timepoint==0)
+dynamic1 <- filter(dynamic, timepoint==1)
+dynamic6 <- filter(dynamic, timepoint==6)
+dynamic12 <- filter(dynamic, timepoint==12)
+
+dynamic_joined <- rbind(dynamic0, dynamic1, dynamic6, dynamic12)
+
+col_group <- c("#005288","#56B4E9", "#E69F00")
+
+
+bifidum_dynamic <- ggplot(dynamic_joined, aes(x = timepoint, y = Bifidobacterium_bifidum__SGB17256)) +
+    geom_line(aes(group = snr, color = group), alpha = 0.25,) +
+    stat_summary(aes(group = group, color = group), fun = mean, geom = "line", linewidth = 1.2) +
+    stat_summary(aes(group = group, color = group),
+        fun = mean,
+        geom = "point",
+        size = 2) +
+    theme_classic() +
+    scale_x_continuous(name="Timepoint", breaks=c(0, 1, 6, 12)) +
+      scale_color_manual(values = col_group) +
+    labs(title="Bifidobacterium_bifidum__SGB17256", y="Relative Abundance") +
+    theme(legend.position="none")
+
+breve_dynamic <- ggplot(dynamic_joined, aes(x = timepoint, y = Bifidobacterium_breve__SGB17247)) +
+    geom_line(aes(group = snr, color = group), alpha = 0.25,) +
+    stat_summary(aes(group = group, color = group), fun = mean, geom = "line", linewidth = 1.2) +
+    stat_summary(aes(group = group, color = group),
+        fun = mean,
+        geom = "point",
+        size = 2) +
+    theme_classic() +
+    scale_x_continuous(name="Timepoint", breaks=c(0, 1, 6, 12)) +
+      scale_color_manual(values = col_group) +
+    labs(title="Bifidobacterium_breve__SGB17247", y="Relative Abundance") +
+    theme(legend.position="none")
+
+gnavus_dynamic <- ggplot(dynamic_joined, aes(x = timepoint, y = Ruminococcus_gnavus__SGB4584)) +
+    geom_line(aes(group = snr, color = group), alpha = 0.25,) +
+    stat_summary(aes(group = group, color = group), fun = mean, geom = "line", linewidth = 1.2) +
+    stat_summary(aes(group = group, color = group),
+        fun = mean,
+        geom = "point",
+        size = 2) +
+    theme_classic() +
+    scale_x_continuous(name="Timepoint", breaks=c(0, 1, 6, 12)) +
+      scale_color_manual(values = col_group) +
+    labs(title="Ruminococcus_gnavus__SGB4584", y="Relative Abundance", color="Group") +
+        theme(legend.position="none")
+     
+# Join plots
+
+legend <- get_legend(p_feat_ratio_summary_split + theme(legend.box.margin = margin(0, 0, 0, 12)))
+
+p_first <- plot_grid(p_feat_ratio_summary, p_feat_ratio_summary_split + theme(legend.position="none"), legend,
+                       nrow=1,
+                    labels=c("A", "B"),
+                    rel_widths=c(1,1,0.5))
+
+p_second <- plot_grid(
+#                    p_bar_1, comp1,
+                         p_bar_2, comp2,
+                         p_bar_3, comp3,
+                      nrow=2,
+                      ncol=2,
+                      rel_widths=(c(3, 1)),
+                      align = "h",
+                      labels=c(
+#                          "C Component 1", "", 
+                          "C Component 2", "", 
+                          "D Component 3"),
+                      hjust = -0.05,
+                     vjust=0.1)
+
+p_third <- plot_grid(bifidum_dynamic, breve_dynamic, gnavus_dynamic,
+                     nrow=1, ncol=3,
+                     labels="E")
+
+p_all <- plot_grid(p_first, p_second, p_third,
+                      nrow=3, ncol=1,
+                  rel_heights=c(1,2.5, 1.4))
+
+p_all
+
+ggsave('temporal_fecal.pdf', width=10, height=13, plot=p_all)
