@@ -1,0 +1,23 @@
+# SameStr from
+# https://github.com/danielpodlesny/SameStr?tab=readme-ov-file
+
+
+# Metadata cleaning in jupyter notebook file
+
+# STEPS FROM GITHUB
+
+# 1 db 
+# 2 ALIGN
+# 3 CONVERT 
+samestr convert \
+--input-files out_align/*sam.bz2 \ 
+--marker-dir samestr_db/ \
+--nprocs 30 \
+--min-vcov 5 \
+--output-dir out_convert/
+
+# 4 Compile a list of all strains from the samples
+python 4_merge_1.0.py
+python 5_strain_list.py
+
+Final steps in jupyter notebooks
