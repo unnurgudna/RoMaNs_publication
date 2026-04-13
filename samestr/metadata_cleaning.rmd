@@ -1,0 +1,67 @@
+library(dplyr)
+     
+familyid <- read.csv("../11_Strain_tracking/metadata/sink_source.csv")
+meta <- read.csv("../1_Decontamination/full_data.csv")
+meta <- select(meta, sampleID, Sample)
+
+meta <- filter(meta, meta$sampleID %in% familyid$M1 |
+               meta$sampleID %in% familyid$M2 |
+               meta$sampleID %in% familyid$B1 |
+               meta$sampleID %in% familyid$B2 |
+               meta$sampleID %in% familyid$B3 |
+               meta$sampleID %in% familyid$B4)
+
+
+fecal_samples <- select(meta, Sample)
+samples <- select(meta, sampleID)
+samples <- unique(samples)
+write.csv(samples, "sample_list.csv", row.names=FALSE)
+     
+fecal_samples$flowcell <- sub('.*__', '', fecal_samples$Sample)
+fecal_samples$flowcell <- sub("\_.*", "", fecal_samples$flowcell)
+
+flowcell <- select(fecal_samples, flowcell)
+flowcell <- unique(flowcell)
+
+write.csv(flowcell, "flowcell_list.csv", row.names=FALSE)
+     
+moms <- filter(meta, meta$sampleID %in% familyid$M1 |
+               meta$sampleID %in% familyid$M2)
+moms <- filter(moms, !is.na(Sample))
+moms <- select(moms, Sample)
+moms <- unique(moms)
+moms$Sample <- paste0("114_RoMaNs__", moms$Sample)
+
+write.csv(moms, "mom_samples.csv", row.names=FALSE)
+     
+moms <- filter(meta, meta$sampleID %in% familyid$B1)
+moms <- filter(moms, !is.na(Sample))
+moms <- select(moms, Sample)
+moms <- unique(moms)
+moms$Sample <- paste0("114_RoMaNs__", moms$Sample)
+dim(moms)
+write.csv(moms, "newborn_samples.csv", row.names=FALSE)
+
+moms <- filter(meta, meta$sampleID %in% familyid$B2)
+moms <- filter(moms, !is.na(Sample))
+moms <- select(moms, Sample)
+moms <- unique(moms)
+moms$Sample <- paste0("114_RoMaNs__", moms$Sample)
+dim(moms)
+write.csv(moms, "month1_samples.csv", row.names=FALSE)
+
+moms <- filter(meta, meta$sampleID %in% familyid$B3)
+moms <- filter(moms, !is.na(Sample))
+moms <- select(moms, Sample)
+moms <- unique(moms)
+moms$Sample <- paste0("114_RoMaNs__", moms$Sample)
+dim(moms)
+write.csv(moms, "month6_samples.csv", row.names=FALSE)
+
+moms <- filter(meta, meta$sampleID %in% familyid$B4)
+moms <- filter(moms, !is.na(Sample))
+moms <- select(moms, Sample)
+moms <- unique(moms)
+moms$Sample <- paste0("114_RoMaNs__", moms$Sample)
+dim(moms)
+write.csv(moms, "month12_samples.csv", row.names=FALSE)    
