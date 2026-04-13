@@ -1,0 +1,692 @@
+library(dplyr)
+library(ggplot2)
+library(rstatix)
+library(ggpubr)
+library(tidyr)
+library(tibble)
+library(ggvenn)
+     
+# Read output from samestr
+strain_list <- read.csv("samestr_first_run/newborn_out_strain_list.csv")
+strain_list_2 <- read.csv("samestr_second_run/month1_out_strain_list.csv")
+strain_list_3 <- read.csv("samestr_thrid_run/month6_out_strain_list.csv")
+strain_list_4 <- read.csv("samestr_fourth_run/out_strain_list.csv")
+
+strain_list <- rbind(strain_list, strain_list_2)
+strain_list <- rbind(strain_list, strain_list_3)
+strain_list <- rbind(strain_list, strain_list_4)
+colnames(strain_list) <- c("strain", "sampleID")
+
+strain_list <- filter(strain_list, grepl("names.txt", strain_list$strain))
+strain_list$strain <- gsub("\..*","",strain_list$strain)
+strain_list$sampleID <- gsub("\__E.*","",strain_list$sampleID)
+strain_list$sampleID <- gsub("114_RoMaNs__","",strain_list$sampleID)
+
+# Mother-child pairs
+
+meta <- read.csv("../1_Decontamination/full_data.csv")
+meta <- select(meta, sampleID, snr, group, sample_info)
+
+meta <- filter(meta, sampleID %in% strain_list$sampleID)
+
+moms <- filter(meta, grepl("mother", meta$sample_info))
+moms <- select(moms, sampleID, snr, group)
+colnames(moms) <- c("Mother", "snr", "group")
+
+newborns <- filter(meta, grepl("newborn", meta$sample_info))
+newborns <- select(newborns, sampleID, snr)
+colnames(newborns) <- c("Newborns", "snr")
+
+month1 <- filter(meta, grepl("month_1.child", meta$sample_info))
+month1 <- select(month1, sampleID, snr)
+colnames(month1) <- c("Month_1", "snr")
+
+month6 <- filter(meta, grepl("month_6.child", meta$sample_info))
+month6 <- select(month6, sampleID, snr)
+colnames(month6) <- c("Month_6", "snr")
+
+month12 <- filter(meta, grepl("month_12.child", meta$sample_info))
+month12 <- select(month12, sampleID, snr)
+colnames(month12) <- c("Month_12", "snr")
+
+samples <- full_join(moms, newborns, by="snr")
+samples <- full_join(samples, month1, by="snr")
+samples <- full_join(samples, month6, by="snr")
+samples <- full_join(samples, month12, by="snr")
+
+samples1 <- filter(samples, !is.na(samples$Newborns) &
+                  !is.na(samples$Mother))
+samples2 <- filter(samples, !is.na(samples$Month_1) &
+                   !is.na(samples$Mother))
+samples3 <- filter(samples, !is.na(samples$Month_6) &
+                   !is.na(samples$Mother))
+samples4 <- filter(samples, !is.na(samples$Month_12) &
+                   !is.na(samples$Mother))
+
+# Find number of shared strains per study ID
+
+# Most commonly found strains
+strain_list %>%
+  count(strain, sort = TRUE) %>% 
+  slice_head(n = 10)  
+     
+# Count number of strains per sample
+
+total_strains <- strain_list %>%
+  count(sampleID, sort = TRUE)
+
+# Newborns
+shared_results <- mapply(function(Mother, Newborns) {
+  d_a <- strain_list$strain[strain_list$sampleID == Mother]
+  d_b <- strain_list$strain[strain_list$sampleID == Newborns]
+  shared <- intersect(d_a, d_b)
+  
+  list(
+    shared_strains = shared,
+    shared_count = length(shared)
+  )
+}, samples1$Mother, samples1$Newborns, SIMPLIFY = FALSE)
+
+# Unpack the results into separate columns
+samples1$shared_count <- sapply(shared_results, function(x)xshared_count)
+samples1$shared_strains <- sapply(shared_results, funciton(x)
+                                  paste(xshared_strains, collapse = ","))
+
+#Month 1
+shared_results <- mapply(function(Mother, Month_1) {
+  d_a <- strain_list$strain[strain_list$sampleID == Mother]
+  d_b <- strain_list$strain[strain_list$sampleID == Month_1]
+  shared <- intersect(d_a, d_b)
+  
+  list(
+    shared_strains = shared,
+    shared_count = length(shared)
+  )
+}, samples2$Mother, samples2$Month_1, SIMPLIFY = FALSE)
+
+# Unpack the results into separate columns
+samples2$shared_count <- sapply(shared_results, function(x) xshared_count)
+samples2$shared_strains <- sapply(shared_results, function(x) paste(xshared_strains, collapse = ", "))
+
+#Month 6
+shared_results <- mapply(function(Mother, Month_6) {
+  d_a <- strain_list$strain[strain_list$sampleID == Mother]
+  d_b <- strain_list$strain[strain_list$sampleID == Month_6]
+  shared <- intersect(d_a, d_b)
+  
+  list(
+    shared_strains = shared,
+    shared_count = length(shared)
+  )
+}, samples3$Mother, samples3$Month_6, SIMPLIFY = FALSE)
+
+# Unpack the results into separate columns
+samples3$shared_count <- sapply(shared_results, function(x) xshared_count)
+samples3$shared_strains <- sapply(shared_results, function(x) paste(xshared_strains, collapse=", "))
+
+#Month 12
+shared_results <- mapply(function(Mother, Month_12) {
+  d_a <- strain_list$strain[strain_list$sampleID == Mother]
+  d_b <- strain_list$strain[strain_list$sampleID == Month_12]
+  shared <- intersect(d_a, d_b)
+  
+  list(
+    shared_strains = shared,
+    shared_count = length(shared)
+  )
+}, samples4$Mother, samples4$Month_12, SIMPLIFY = FALSE)
+
+# Unpack the results into separate columns
+samples4$shared_count <- sapply(shared_results, function(x) xhared_count)
+samples4$shared_strains <- sapply(shared_results, function(x) paste(xshared_strains, collapse = ", "))
+     
+
+samples1 <- left_join(samples1, total_strains, by=c("Newborns"="sampleID"))
+samples1$ratio <- (shared_count / samples1$n)*100
+
+samples2 <- left_join(samples2, total_strains, by=c("Month_1"="sampleID"))
+samples2$ratio <- (samples2$shared_count / samples2$n)*100
+
+samples3 <- left_join(samples3, total_strains, by=c("Month_6"="sampleID"))
+samples3$ratio <- (samples3$shared_count / samples3$n)*100
+
+samples4 <- left_join(samples4, total_strains, by=c("Month_12"="sampleID"))
+samples4$ratio <- (samples4$shared_count / samples4$n)*100
+
+# Newborns
+
+#Vaginal newborns
+strain_counts <- samples1 %>%
+    filter(group=="Vaginal Birth") %>%
+  separate_rows(shared_strains, sep = ",\s*") %>%   # split by comma
+  filter(shared_strains != "") %>%                   # remove empty values
+  count(shared_strains, sort = TRUE)                 # count occurrences
+
+#CS-I
+strain_counts <- samples1 %>%
+    filter(group=="C-Section Intervention") %>%
+  separate_rows(shared_strains, sep = ",\s*") %>%   # split by comma
+  filter(shared_strains != "") %>%                   # remove empty values
+  count(shared_strains, sort = TRUE)                 # count occurrences
+
+#CS-P
+strain_counts <- samples1 %>%
+    filter(group=="C-Section Placebo") %>%
+  separate_rows(shared_strains, sep = ",\s*") %>%   # split by comma
+  filter(shared_strains != "") %>%                   # remove empty values
+  count(shared_strains, sort = TRUE)                 # count occurrences
+
+# Month 1
+
+#Vaginal
+strain_counts <- samples2 %>%
+    filter(group=="Vaginal Birth") %>%
+  separate_rows(shared_strains, sep = ",\s*") %>%   # split by comma
+  filter(shared_strains != "") %>%                   # remove empty values
+  count(shared_strains, sort = TRUE)                 # count occurrences
+
+#CS-I
+strain_counts <- samples2 %>%
+    filter(group=="C-Section Intervention") %>%
+  separate_rows(shared_strains, sep = ",\s*") %>%   # split by comma
+  filter(shared_strains != "") %>%                   # remove empty values
+  count(shared_strains, sort = TRUE)                 # count occurrences
+
+#CS-P
+strain_counts <- samples2 %>%
+    filter(group=="C-Section Placebo") %>%
+  separate_rows(shared_strains, sep = ",\s*") %>%   # split by comma
+  filter(shared_strains != "") %>%                   # remove empty values
+  count(shared_strains, sort = TRUE)                 # count occurrences
+
+# Month 6
+
+#Vaginal
+strain_counts <- samples3 %>%
+    filter(group=="Vaginal Birth") %>%
+  separate_rows(shared_strains, sep = ",\s*") %>%   # split by comma
+  filter(shared_strains != "") %>%                   # remove empty values
+  count(shared_strains, sort = TRUE)                 # count occurrences
+
+#CS-I
+strain_counts <- samples3 %>%
+    filter(group=="C-Section Intervention") %>%
+  separate_rows(shared_strains, sep = ",\s*") %>%   # split by comma
+  filter(shared_strains != "") %>%                   # remove empty values
+  count(shared_strains, sort = TRUE)                 # count occurrences
+
+#CS-P
+strain_counts <- samples3 %>%
+    filter(group=="C-Section Placebo") %>%
+  separate_rows(shared_strains, sep = ",\s*") %>%   # split by comma
+  filter(shared_strains != "") %>%                   # remove empty values
+  count(shared_strains, sort = TRUE)                 # count occurrences
+
+# Month 12
+
+#Vaginal
+strain_counts <- samples4 %>%
+    filter(group=="Vaginal Birth") %>%
+  separate_rows(shared_strains, sep = ",\s*") %>%   # split by comma
+  filter(shared_strains != "") %>%                   # remove empty values
+  count(shared_strains, sort = TRUE)                 # count occurrences
+
+#CS-I
+strain_counts <- samples4 %>%
+    filter(group=="C-Section Intervention") %>%
+  separate_rows(shared_strains, sep = ",\s*") %>%   # split by comma
+  filter(shared_strains != "") %>%                   # remove empty values
+  count(shared_strains, sort = TRUE)                 # count occurrences
+
+#CS-P
+strain_counts <- samples4 %>%
+    filter(group=="C-Section Placebo") %>%
+  separate_rows(shared_strains, sep = ",\s*") %>%   # split by comma
+  filter(shared_strains != "") %>%                   # remove empty values
+  count(shared_strains, sort = TRUE)                 # count occurrences
+
+### Plot ###
+
+samples1$group[samples1$group == "C-Section Placebo"] <- "C-Section\nPlacebo"
+samples1$group[samples1$group == "C-Section Intervention"] <- "C-Section\nIntervention"
+samples1$group[samples1$group == "Vaginal Birth"] <- "Vaginal\nBirth"
+samples1$group <- factor(samples1$group, levels=c("Vaginal\nBirth", "C-Section\nPlacebo", "C-Section\nIntervention"))
+
+samples2$group[samples2$group == "C-Section Placebo"] <- "C-Section\nPlacebo"
+samples2$group[samples2$group == "C-Section Intervention"] <- "C-Section\nIntervention"
+samples2$group[samples2$group == "Vaginal Birth"] <- "Vaginal\nBirth"
+samples2$group <- factor(samples2$group, levels=c("Vaginal\nBirth", "C-Section\nPlacebo", "C-Section\nIntervention"))
+
+samples3$group[samples3$group == "C-Section Placebo"] <- "C-Section\nPlacebo"
+samples3$group[samples3$group == "C-Section Intervention"] <- "C-Section\nIntervention"
+samples3$group[samples3$group == "Vaginal Birth"] <- "Vaginal\nBirth"
+samples3$group <- factor(samples3$group, levels=c("Vaginal\nBirth", "C-Section\nPlacebo", "C-Section\nIntervention"))
+                                 
+samples4$group[samples4$group == "C-Section Placebo"] <- "C-Section\nPlacebo"
+samples4$group[samples4$group == "C-Section Intervention"] <- "C-Section\nIntervention"
+samples4$group[samples4$group == "Vaginal Birth"] <- "Vaginal\nBirth"
+samples4$group <- factor(samples4$group, levels=c("Vaginal\nBirth", "C-Section\nPlacebo", "C-Section\nIntervention"))
+                                 
+col_group <- c("#E69F00", "#56B4E9", "#0072B2")
+
+my_comparisons <- list( c("Vaginal\nBirth", "C-Section\nPlacebo"), 
+                       c("Vaginal\nBirth", "C-Section\nIntervention"), 
+                       c("C-Section\nIntervention", "C-Section\nPlacebo") )
+     
+
+newborn <- ggplot(samples1, aes(x=group, y=ratio, fill=group)) +
+    geom_violin() +
+    geom_boxplot(width=0.1, alpha=0.8) +
+    scale_fill_manual(values=col_group) +
+    theme_classic() +
+    theme(legend.title=element_blank(), plot.title = element_text(size=14),
+         axis.title.x = element_text(size = 20),
+          axis.title.y = element_text(size = 15)) +
+    theme(axis.text.x = element_text(size=14),
+          axis.text.y = element_text(size=14)) +
+    theme(legend.position="none") +
+    labs(x="", y="% of shared strains", title="Mothers (month 1) and Newborns") +
+    theme(axis.ticks.x=element_blank()) +
+    scale_y_continuous(limits = c(0, 115), breaks = c(0, 25, 50, 75, 100)) +
+    stat_compare_means(comparisons = my_comparisons, label.y = c(106, 99, 85), label = "p") +
+    scale_x_discrete(labels = c("Vaginal\nBirth" = "Vaginal\nBirth\nn=41",
+                                "C-Section\nPlacebo" = "C-Section\nPlacebo\nn=15",
+                                "C-Section\nIntervention" = "C-Section\nIntervention\nn=16"))
+ggsave('Figures/strains_newborn.pdf', width=5, height=5, plot=newborn)
+     
+month1 <- ggplot(samples2, aes(x=group, y=ratio, fill=group)) +
+    geom_violin() +
+    geom_boxplot(width=0.1, alpha=0.8) +
+    scale_fill_manual(values=col_group) +
+    theme_classic() +
+    theme(legend.title=element_blank(), plot.title = element_text(size=14),
+         axis.title.x = element_text(size = 20),
+          axis.title.y = element_text(size = 15)) +
+    theme(axis.text.x = element_text(size=14),
+          axis.text.y = element_text(size=14)) +
+    theme(legend.position="none") +
+    labs(x="", y="% of shared strains", title="Mothers and Infants (month 1)") +
+    theme(axis.ticks.x=element_blank()) +
+    ylim(0, 100) +
+    stat_compare_means(comparisons = my_comparisons, label.y = c(86, 93, 62), label = "p")+
+    scale_x_discrete(labels = c("Vaginal\nBirth" = "Vaginal\nBirth\nn=57",
+                                "C-Section\nPlacebo" = "C-Section\nPlacebo\nn=10",
+                                "C-Section\nIntervention" = "C-Section\nIntervention\nn=21"))
+
+ggsave('Figures/strains_month1.pdf', width=6, height=5, plot=month1)
+     
+month6 <- ggplot(samples3, aes(x=group, y=ratio, fill=group)) +
+    geom_violin() +
+    geom_boxplot(width=0.1, alpha=0.8) +
+    scale_fill_manual(values=col_group) +
+    theme_classic() +
+    theme(legend.title=element_blank(), plot.title = element_text(size=14),
+         axis.title.x = element_text(size = 20),
+          axis.title.y = element_text(size = 15)) +
+    theme(axis.text.x = element_text(size=14),
+          axis.text.y = element_text(size=14)) +
+    theme(legend.position="none") +
+    labs(x="", y="% of shared strains", title="Mothers (month 1) and Infants (month 6)") +
+    theme(axis.ticks.x=element_blank()) +
+    ylim(0, 100) +
+    stat_compare_means(comparisons = my_comparisons, label.y = c(70, 80, 60), label = "p") +
+    scale_x_discrete(labels = c("Vaginal\nBirth" = "Vaginal\nBirth\nn=51",
+                                "C-Section\nPlacebo" = "C-Section\nPlacebo\nn=17",
+                                "C-Section\nIntervention" = "C-Section\nIntervention\nn=19"))
+
+ggsave('Figures/strains_month6.pdf', width=6, height=5, plot=month6)
+     
+month12 <- ggplot(samples4, aes(x=group, y=ratio, fill=group)) +
+    geom_violin() +
+    geom_boxplot(width=0.1, alpha=0.8) +
+    scale_fill_manual(values=col_group) +
+    theme_classic() +
+    theme(legend.title=element_blank(), plot.title = element_text(size=14),
+         axis.title.x = element_text(size = 20),
+          axis.title.y = element_text(size = 15)) +
+    theme(axis.text.x = element_text(size=14),
+          axis.text.y = element_text(size=14)) +
+    theme(legend.position="none") +
+    labs(x="", y="% of shared strains", title="Mothers (month 1) and Infants (month 12)") +
+    theme(axis.ticks.x=element_blank()) +
+    ylim(0, 100) + 
+    stat_compare_means(comparisons = my_comparisons, label.y = c(88, 95, 75), label = "p") +
+    scale_x_discrete(labels = c("Vaginal\nBirth" = "Vaginal\nBirth\nn=25",
+                                "C-Section\nPlacebo" = "C-Section\nPlacebo\nn=13",
+                                "C-Section\nIntervention" = "C-Section\nIntervention\nn=8"))
+ggsave('Figures/strains_month12.pdf', width=6, height=5, plot=month12)
+     
+
+### Parallel coordinate diagram ###
+
+sankey <- left_join(select(samples1, snr, group, shared_count, ratio), 
+                    select(samples2, snr, shared_count, ratio),
+                    by="snr")
+
+sankey <- left_join(sankey,
+                    select(samples3, snr, shared_count, ratio),
+                    by="snr")
+
+sankey <- left_join(sankey,
+                    select(samples4, snr, shared_count, ratio),
+                    by="snr")
+
+colnames(sankey) <- c("snr", "Group", 
+                      "Newborns", "Newborn_ratio",
+                      "Month 1", "Month_1_ratio",
+                      "Month 6", "Month_6_ratio",
+                      "Month 12", "Month_12_ratio")
+
+library(GGally)
+
+cols_idx <- c(3, 5, 7, 9)
+
+timeline <- ggparcoord(
+  sankey,
+  columns = cols_idx,
+  groupColumn = 2,   # "Group"
+  showPoints = TRUE,
+  scale = "globalminmax",
+  alphaLines = 0.4
+) +
+  theme_classic() +
+  xlab("") +
+  ylab("log10 number of shared strains") +
+  scale_color_manual(values = c("#E69F00", "#56B4E9", "#0072B2"))
+
+cols <- c("Newborns", "Month 1", "Month 6", "Month 12")
+
+avg_data <- sankey %>%
+  group_by(Group) %>%
+  summarise(across(all_of(cols), mean, na.rm = TRUE)) %>%
+  pivot_longer(
+    cols = all_of(cols), 
+    names_to = "variable",
+    values_to = "value"
+  )
+
+timeline <- timeline +
+  geom_line(data = avg_data, aes(x = variable, y = value, group = Group, color = Group),
+    linewidth = 1.5, alpha = 1 ,inherit.aes = FALSE) +
+  geom_point(data = avg_data, aes(x = variable, y = value, color = Group),
+    size = 2.5, alpha = 1.5, inherit.aes = FALSE) +
+    theme(legend.title=element_blank(), plot.title = element_text(size=14),
+            axis.title.x = element_text(size = 20),
+            axis.title.y = element_text(size = 15)) +
+    theme(axis.text.x = element_text(size=14),
+          axis.text.y = element_text(size=14)) +
+    theme(legend.text = element_text(size = 14), 
+    legend.title = element_text(size = 16))
+#    scale_y_log10() 
+
+
+
+sankey_ratio_0 <- select(sankey, snr, Newborn_ratio, Group)
+colnames(sankey_ratio_0) <- c("snr", "ratio", "Group")
+sankey_ratio_0$timepoint <- "Newborn"
+
+sankey_ratio_1 <- select(sankey, snr, Month_1_ratio, Group)
+colnames(sankey_ratio_1) <- c("snr", "ratio", "Group")
+sankey_ratio_1$timepoint <- "Month 1"
+
+sankey_ratio_2 <- select(sankey, snr, Month_6_ratio, Group)
+colnames(sankey_ratio_2) <- c("snr", "ratio", "Group")
+sankey_ratio_2$timepoint <- "Month 6"
+
+sankey_ratio_3 <- select(sankey, snr, Month_12_ratio, Group)
+colnames(sankey_ratio_3) <- c("snr", "ratio", "Group")
+sankey_ratio_3$timepoint <- "Month 12"
+
+sankey_ratio <- rbind(sankey_ratio_0, sankey_ratio_1, sankey_ratio_2, sankey_ratio_3)
+
+sankey_ratio$timepoint <- factor(sankey_ratio$timepoint, levels=c("Newborn", "Month 1", "Month 6", "Month 12"))
+     
+ratio_plot <- ggplot(sankey_ratio, aes(x = timepoint, y = ratio)) +
+    geom_line(aes(group = snr, color = Group), alpha = 0.25,) +
+    stat_summary(aes(group = Group, color = Group), fun = mean, geom = "line", linewidth = 1.2) +
+    stat_summary(aes(group = Group, color = Group),
+        fun = mean,
+        geom = "point",
+        size = 2) +
+    theme_classic() +
+    theme(legend.title=element_text(size=12), legend.text=element_text(size=11),
+         axis.title.x = element_text(size = 12),
+          axis.title.y = element_text(size = 12)) +
+    theme(axis.text.x = element_text(size=11),
+          axis.text.y = element_text(size=11)) +
+      scale_color_manual(values = col_group) +
+    labs(y="% of strains shared", x="Timepoint") 
+#    theme(legend.position="none")
+
+
+     
+# Join figures
+
+library(cowplot)
+
+joined_1 <- plot_grid(newborn, month1, month6, month12,
+                       nrow=2,
+                    labels=c("A", "B", "C", "D"))
+
+joined_2 <- plot_grid( timeline,
+                      nrow=1,
+                      ncol=1,
+                      labels=c("E"))
+
+joined_3 <- plot_grid(joined_1,
+                      joined_2,
+                      nrow=2,
+                      ncol=1,
+                      rel_heights=c(1, 0.5))
+
+joined_3
+
+ggsave('Figures/strain_tracking_combined.pdf', width=12, height=13, plot=joined_3)
+     
+
+# Venn diagram of shared strains
+
+shared_1 <- select(samples1, group, shared_strains)
+shared_1 <- unique(separate_rows(shared_1, shared_strains, sep = ","))
+shared_1 <- arrange(shared_1, shared_strains)
+#head(shared_1)
+
+sets <- shared_1 %>%
+  group_by(group) %>%
+  summarise(items = list(unique(shared_strains))) %>%
+  deframe()
+
+newborn_venn <- ggvenn(
+  sets,
+  fill_color = c("#E69F00",
+                 "#0072B2",
+                 "#56B4E9"
+                ),
+  stroke_size = 0.5,
+    text_size = 4,
+  set_name_size = 4) +
+  ggtitle("Newborns")
+
+shared_2 <- select(samples2, group, shared_strains)
+shared_2 <- unique(separate_rows(shared_2, shared_strains, sep = ","))
+shared_2 <- arrange(shared_2, shared_strains)
+
+sets <- shared_2 %>%
+  group_by(group) %>%
+  summarise(items = list(unique(shared_strains))) %>%
+  deframe()
+
+month1_venn <- ggvenn(
+  sets,
+  fill_color = c("#E69F00",
+                 "#0072B2",
+                 "#56B4E9"),
+  stroke_size = 0.5,
+    text_size = 4,
+  set_name_size = 4) +
+  ggtitle("Month 1")
+
+shared_3 <- select(samples3, group, shared_strains)
+shared_3 <- unique(separate_rows(shared_3, shared_strains, sep = ","))
+shared_3 <- arrange(shared_3, shared_strains)
+#head(shared_1)
+
+sets <- shared_3 %>%
+  group_by(group) %>%
+  summarise(items = list(unique(shared_strains))) %>%
+  deframe()
+
+month6_venn <- ggvenn(
+  sets,
+  fill_color = c("#E69F00",
+                 "#0072B2",
+                 "#56B4E9"),
+  stroke_size = 0.5,
+    text_size = 4,
+  set_name_size = 4) +
+  ggtitle("Month 6")
+
+shared_4 <- select(samples4, group, shared_strains)
+shared_4 <- unique(separate_rows(shared_4, shared_strains, sep = ","))
+shared_4 <- arrange(shared_4, shared_strains)
+#head(shared_1)
+
+sets <- shared_4 %>%
+  group_by(group) %>%
+  summarise(items = list(unique(shared_strains))) %>%
+  deframe()
+
+month12_venn <- ggvenn(
+  sets,
+  fill_color = c("#E69F00",
+                 "#0072B2",
+                 "#56B4E9"),
+  stroke_size = 0.5,
+    text_size = 4,
+  set_name_size = 4) +
+  ggtitle("Month 12")
+
+venn_joined <- plot_grid(newborn_venn, month1_venn, month6_venn, month12_venn,
+                       nrow=2,
+                    labels=c("A", "B", "C", "D"))
+
+
+ggsave('Figures/strain_tracking_venn.pdf', width=12, height=12, plot=venn_joined)
+     
+### Heatmap ###
+
+shared_month1 <- samples2 %>%
+  separate_rows(shared_strains, sep = ",") %>%
+    select(group, shared_strains)
+
+#Find the 40 most commonly shared in vaginal birth
+vag_month1 <- filter(shared_month1, group=="Vaginal\nBirth")
+vag_month1 <- vag_month1 %>%
+  group_by(shared_strains) %>%
+  mutate(n = n()) %>%
+  ungroup() %>%
+  filter(shared_strains %in% 
+           (vag_month1 %>%
+              count(shared_strains, sort = TRUE) %>%
+              slice_head(n = 40) %>%
+              pull(shared_strains)))
+
+df_wide <- shared_2 %>%
+  mutate(value = 1) %>%
+  pivot_wider(
+    names_from = group,
+    values_from = value,
+    values_fill = 0,
+    values_fn = max
+  )
+
+df_wide <- filter(df_wide, shared_strains %in% vag_month1$shared_strains)
+
+library(readr)
+
+df_long <- df_wide %>%
+  pivot_longer(
+    cols = -shared_strains,
+    names_to = "group",
+    values_to = "value"
+  )
+
+names <- select(as.data.frame(read_delim("samestr_db/db_taxonomy.tsv")), clade, species, genus, family)
+
+df_long$shared_strains <- trimws(df_long$shared_strains)
+names$clade <- trimws(names$clade)
+
+strains <- left_join(df_long, names, by=c("shared_strains"="clade"))
+
+length(unique(strains$family))
+heatmap <- select(strains, group, value, species)
+
+heatmap <- heatmap %>%
+  group_by(group, species) %>%
+  summarise(value = sum(value), .groups = "drop")
+
+heatmap$value <- ifelse(heatmap$value>0, 1, 0)
+
+heatmap$group[heatmap$group=="C-Section\nPlacebo"] <- "CS-P"
+heatmap$group[heatmap$group=="C-Section\nIntervention"] <- "CS-I"
+heatmap$group[heatmap$group, levels=c("Vaginal\nBirth", "CS-P", "CS-I"))
+
+heatmap$species <- sub("^s__", "", heatmap$species)
+
+heatmap_m1 <- ggplot(heatmap, aes(x = group, y = species, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(
+    low = "#0072B2",
+    mid = "white",
+    high = "#E69F00",
+    midpoint = 0.5,
+    breaks = c(0, 1),
+    labels = c("Shared", "Not shared")
+  ) +
+  theme_minimal() +
+    theme(legend.position="none") +
+    theme(axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(size = 14)) +
+  labs(x = "1 month postpartum", y = "", fill = "")
+
+heatmap_m1
+     
+
+
+venn_joined <- plot_grid(newborn_venn, month1_venn, month6_venn, month12_venn,
+                       nrow=4,
+                         ncol=1,
+                    labels=c("A", "B", "C", "D"))
+
+venn_joined <- plot_grid(venn_joined, heatmap_m1,
+                         nrow=1,
+                         ncol=2,
+                         labels=c("", "E"))
+
+ggsave('Figures/strain_tracking_venn.pdf', width=12, height=12, plot=venn_joined)
+     
+
+joined_1 <- plot_grid(newborn, month1, month6, month12,
+                       nrow=2,
+                    labels=c("A", "B", "C", "D"))
+
+joined_2 <- plot_grid(timeline,
+                      nrow=1,
+                      ncol=1,
+                      labels=c("E"))
+
+joined_3 <- plot_grid(joined_1,
+                      joined_2,
+                      nrow=2,
+                      ncol=1,
+                      rel_heights=c(1, 0.5))
+
+joined_4 <- plot_grid(joined_3, heatmap_m1,
+                      nrow=1,
+                      ncol=2,
+                      labels=c("", "F"),
+                     rel_widths=c(1, 0.7))
+
+joined_4
+
+ggsave('Figures/strain_tracking_combined_heatmap.pdf', width=16, height=12, plot=joined_4)
